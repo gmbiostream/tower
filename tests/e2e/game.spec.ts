@@ -43,24 +43,24 @@ test.describe('Cyber-Immunology TD Game Journey', () => {
     await expect(inspector).toBeVisible();
     await expect(inspector).toContainText('IgG Pulse Sentinel');
 
-    // Upgrade Tier 1 (Cost 75 -> ATP goes to 175)
+    // Upgrade Tier 1 (Cost 75 discounted with 100% integrity to 64 -> ATP goes to 186)
     const upgradeT1 = page.locator('[data-testid="btn-upgrade-t1"]');
     await expect(upgradeT1).toBeVisible();
     await upgradeT1.click();
-    await expect(hudAtp).toHaveText('175');
+    await expect(hudAtp).toHaveText('186');
 
-    // Select Branch A (Cost 150 -> ATP goes to 25)
+    // Select Branch A (Cost 150 discounted to 128 -> ATP goes to 58)
     const branchA = page.locator('[data-testid="btn-branch-a"]');
     await expect(branchA).toBeVisible();
     await branchA.click();
-    await expect(hudAtp).toHaveText('25');
+    await expect(hudAtp).toHaveText('58');
 
-    // 6. Sell Tower (Invested 100 + 75 + 150 = 325, 70% refund = 227 -> ATP = 25 + 227 = 252)
+    // 6. Sell Tower (Invested 100 + 64 + 128 = 292, 70% refund = 204 -> ATP = 58 + 204 = 262)
     const sellBtn = page.locator('[data-testid="btn-sell-tower"]');
     await expect(sellBtn).toBeVisible();
     await sellBtn.click();
     await expect(inspector).toBeHidden();
-    await expect(hudAtp).toHaveText('252');
+    await expect(hudAtp).toHaveText('262');
 
     // 7. Test Send Early Button
     const sendEarlyBtn = page.locator('[data-testid="btn-send-early"]');

@@ -19,8 +19,8 @@ export const TOWER_DEFINITIONS: Record<TowerTypeId, TowerDefinition> = {
       fireRateMultiplier: 1.25, // 280ms
     },
     branchA: {
-      name: 'Hyper-Gatling',
-      description: 'Overclocks photon synthesis for blistering fire rate and critical puncture strikes.',
+      name: 'Hyperpulse Barrage',
+      description: 'Triple Y-arm salvo with hyperactive speed trails for +60% fire rate and 25% critical strikes.',
       cost: 150,
       damageMultiplier: 1.3,
       fireRateMultiplier: 1.6,
@@ -28,8 +28,8 @@ export const TOWER_DEFINITIONS: Record<TowerTypeId, TowerDefinition> = {
       special: 'CRIT_CHANCE_25',
     },
     branchB: {
-      name: 'Chain Pulse',
-      description: 'Bio-photons ionize and arc across up to 3 adjacent viral pathogens.',
+      name: 'Antibody Storm',
+      description: 'Six orbiting antibody fragments form an ionization vortex that arcs across up to 3 adjacent viral pathogens.',
       cost: 160,
       damageMultiplier: 1.1,
       fireRateMultiplier: 1.0,
@@ -64,8 +64,8 @@ export const TOWER_DEFINITIONS: Record<TowerTypeId, TowerDefinition> = {
       fireRateMultiplier: 1.15,
     },
     branchA: {
-      name: 'Plasma Rupture',
-      description: 'Expands blast radius by 50% and leaves a lingering acidic bio-field.',
+      name: 'Toxin Nebula',
+      description: 'Wraps the pentamer in a corrosive toxic cloud that leaves a lingering acidic bio-field.',
       cost: 200,
       damageMultiplier: 1.4,
       rangeMultiplier: 1.2,
@@ -73,8 +73,8 @@ export const TOWER_DEFINITIONS: Record<TowerTypeId, TowerDefinition> = {
       special: 'ACID_POOL_DOT',
     },
     branchB: {
-      name: 'Cluster Shells',
-      description: 'Impact fragments into 4 secondary explosive sub-munitions.',
+      name: 'Chain Reaction',
+      description: 'Arc-lightning links between units detonate secondary explosive cluster fragments.',
       cost: 220,
       damageMultiplier: 1.25,
       rangeMultiplier: 1.0,
@@ -154,8 +154,8 @@ export const TOWER_DEFINITIONS: Record<TowerTypeId, TowerDefinition> = {
       fireRateMultiplier: 1.0,
     },
     branchA: {
-      name: 'Focused Ion Lance',
-      description: 'Maximum thermal ramp multiplier increased to 8x with faster spool time.',
+      name: 'Perforin Lance',
+      description: 'Crystalline protein lance extends for high-intensity focused thermal damage ramp (up to 8x).',
       cost: 260,
       damageMultiplier: 1.5,
       rangeMultiplier: 1.2,
@@ -163,8 +163,8 @@ export const TOWER_DEFINITIONS: Record<TowerTypeId, TowerDefinition> = {
       special: 'RAMP_8X_FAST',
     },
     branchB: {
-      name: 'Multi-Prism Beam',
-      description: 'Prism splits into 3 concurrent target locks, melting multiple heavy targets simultaneously.',
+      name: 'Cytotoxic Nova',
+      description: 'Multi-vector burst ring splits into 3 concurrent target locks, melting multiple heavy targets simultaneously.',
       cost: 280,
       damageMultiplier: 1.2,
       rangeMultiplier: 1.1,

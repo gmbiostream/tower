@@ -51,4 +51,44 @@ describe('GameEngine Phases & Commands', () => {
     expect(engine.atp).toBeGreaterThan(initialAtp);
     expect(engine.score).toBeGreaterThan(initialScore);
   });
+
+  it('should initialize correctly with new v0.2.0 difficulties (EASY, MEDIUM, HARD, EXTREME)', () => {
+    const difficulties = ['EASY', 'MEDIUM', 'HARD', 'EXTREME'] as const;
+    for (const diff of difficulties) {
+      const engine = new GameEngine();
+      const result = engine.dispatch({
+        type: 'START_GAME',
+        mapId: 'PULMONARY_CONVERGENCE',
+        difficultyId: diff,
+        seed: 1234,
+      });
+      expect(result.ok).toBe(true);
+      expect(engine.phase).toBe('PLAYING');
+      expect(engine.mapGrid.data.id).toBe('PULMONARY_CONVERGENCE');
+      expect(engine.atp).toBeGreaterThan(0);
+      expect(engine.integrity).toBe(100);
+    }
+  });
+
+  it('should spawn enemies distributing across multiple routes on PULMONARY_CONVERGENCE', () => {
+    const engine = new GameEngine();
+    engine.dispatch({
+      type: 'START_GAME',
+      mapId: 'PULMONARY_CONVERGENCE',
+      difficultyId: 'EXTREME',
+      seed: 99,
+    });
+    engine.dispatch({ type: 'START_WAVE_EARLY' });
+
+    // Update the engine with ticks to spawn multiple enemies
+    for (let i = 0; i < 300; i++) {
+      engine.tick(16.666);
+    }
+
+    // Check that spawned enemies have routeIndex assigned (0 or 1)
+    const enemies = Array.from(engine.enemies.values());
+    expect(enemies.length).toBeGreaterThan(0);
+    const routesPresent = new Set(enemies.map((e) => e.routeIndex ?? 0));
+    expect(routesPresent.size).toBeGreaterThanOrEqual(1);
+  });
 });

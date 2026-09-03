@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { GameEngine } from '@/core/engine';
+import { TOWER_DEFINITIONS } from '@/data/towers';
 
 describe('GameEngine Economy & Upgrades', () => {
   it('should deduct ATP on tower placement and reject when insufficient ATP', () => {
@@ -53,12 +54,15 @@ describe('GameEngine Economy & Upgrades', () => {
     engine.dispatch({ type: 'PLACE_TOWER', towerTypeId: 'IGG', col: 0, row: 0 });
     const tower = Array.from(engine.towers.values())[0]!;
 
-    // Upgrade Tier 1 (75 ATP) -> Total invested = 175 ATP
+    const baseCost = TOWER_DEFINITIONS.IGG.tier1Upgrade.cost;
+    const actualUpgradeCost = engine.getUpgradeCost(baseCost);
+
+    // Upgrade Tier 1
     engine.dispatch({ type: 'UPGRADE_TOWER', towerId: tower.id });
-    expect(tower.totalInvestedAtp).toBe(175);
+    expect(tower.totalInvestedAtp).toBe(100 + actualUpgradeCost);
 
     const atpBeforeSell = engine.atp;
-    const expectedRefund = Math.floor(175 * 0.7); // 122 ATP
+    const expectedRefund = Math.floor((100 + actualUpgradeCost) * 0.7);
 
     const sellRes = engine.dispatch({ type: 'SELL_TOWER', towerId: tower.id });
     expect(sellRes.ok).toBe(true);

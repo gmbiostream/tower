@@ -11,7 +11,7 @@ function setupBranchTower(towerTypeId: TowerTypeId, branch: 'A' | 'B', seed = 42
   engine.dispatch({ type: 'START_GAME', mapId: 'VASCULAR_RUN', difficultyId: 'ACUTE', seed });
   engine.atp = 5000;
 
-  const placeRes = engine.dispatch({ type: 'PLACE_TOWER', towerTypeId, col: 0, row: 2 });
+  const placeRes = engine.dispatch({ type: 'PLACE_TOWER', towerTypeId, col: 0, row: 5 });
   expect(placeRes.ok).toBe(true);
   const tower = Array.from(engine.towers.values())[0]!;
 
@@ -117,10 +117,10 @@ describe('Tower branch specials', () => {
 
   it('CLUSTER_FRAGMENTS_4: IgM branch B sub-explosions add extra hits around the impact', () => {
     const { engine } = setupBranchTower('IGM', 'B');
-    // Two anchored enemies: impact lands on the leader; the trailer sits
+    // Two anchored enemies close together: impact lands on the leader; the trailer sits
     // inside both the main splash and the offset fragment blasts.
     spawnAnchoredEnemy(engine, 0);
-    spawnAnchoredEnemy(engine, 37);
+    spawnAnchoredEnemy(engine, 18);
 
     const damageEvents: string[] = [];
     engine.events.subscribe((e: DomainEvent) => {

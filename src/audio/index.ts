@@ -1,1 +1,2 @@
-export {};
+export { SoundSynth } from './synth';
+

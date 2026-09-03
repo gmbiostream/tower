@@ -19,7 +19,7 @@ describe('GameEngine Core Bug Fixes', () => {
     const engine = new GameEngine();
     engine.dispatch({ type: 'START_GAME', mapId: 'VASCULAR_RUN', difficultyId: 'ACUTE' });
 
-    engine.dispatch({ type: 'PLACE_TOWER', towerTypeId: 'IGM', col: 0, row: 2 });
+    engine.dispatch({ type: 'PLACE_TOWER', towerTypeId: 'IGM', col: 0, row: 5 });
 
     const boss = engine.spawnEnemy('RETRO_MUTANT', 0);
     boss.hp = 1;
@@ -46,7 +46,7 @@ describe('GameEngine Core Bug Fixes', () => {
 
     // Beam tower with a near-dead enemy in range: pre-fix it would score a
     // kill in the same tick after GAME_DEFEAT was already emitted
-    engine.dispatch({ type: 'PLACE_TOWER', towerTypeId: 'KILLER_T', col: 0, row: 2 });
+    engine.dispatch({ type: 'PLACE_TOWER', towerTypeId: 'KILLER_T', col: 0, row: 5 });
     const victim = engine.spawnEnemy('INFLUENZA', 0);
     victim.hp = 1;
     victim.baseSpeed = 0;
@@ -135,7 +135,7 @@ describe('GameEngine Core Bug Fixes', () => {
     const engine = new GameEngine();
     engine.dispatch({ type: 'START_GAME', mapId: 'VASCULAR_RUN', difficultyId: 'ACUTE' });
 
-    engine.dispatch({ type: 'PLACE_TOWER', towerTypeId: 'IGA', col: 0, row: 2 });
+    engine.dispatch({ type: 'PLACE_TOWER', towerTypeId: 'IGA', col: 0, row: 5 });
 
     const enemy = engine.spawnEnemy('CORONA_TITAN', 0);
     enemy.baseSpeed = 0;

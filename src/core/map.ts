@@ -17,6 +17,8 @@ export class MapGrid {
   public readonly data: MapData;
   public readonly segments: PathSegment[];
   public readonly totalPathLength: number;
+  public readonly allRoutesSegments: PathSegment[][];
+  public readonly routeLengths: number[];
   private readonly pathCellSet: Set<string>;
   private readonly blockedCellSet: Set<string>;
 
@@ -25,18 +27,33 @@ export class MapGrid {
     this.pathCellSet = new Set(data.pathGridCells.map((c) => `${c.col},${c.row}`));
     this.blockedCellSet = new Set(data.blockedGridCells.map((c) => `${c.col},${c.row}`));
 
-    // Compute path segments and lengths
-    this.segments = [];
-    let currentDist = 0;
+    // Compute primary path segments and lengths
+    this.segments = MapGrid.buildSegments(data.waypoints);
+    this.totalPathLength = this.segments.length > 0 ? this.segments[this.segments.length - 1]!.cumulativeEndDistance : 0;
 
-    for (let i = 0; i < data.waypoints.length - 1; i++) {
-      const start = data.waypoints[i]!;
-      const end = data.waypoints[i + 1]!;
+    // Build segments for all distinct routes if provided
+    if (data.routes && data.routes.length > 0) {
+      this.allRoutesSegments = data.routes.map((r) => MapGrid.buildSegments(r));
+      this.routeLengths = this.allRoutesSegments.map((segs) =>
+        segs.length > 0 ? segs[segs.length - 1]!.cumulativeEndDistance : 0
+      );
+    } else {
+      this.allRoutesSegments = [this.segments];
+      this.routeLengths = [this.totalPathLength];
+    }
+  }
+
+  private static buildSegments(pts: WorldCoord[]): PathSegment[] {
+    const segs: PathSegment[] = [];
+    let currentDist = 0;
+    for (let i = 0; i < pts.length - 1; i++) {
+      const start = pts[i]!;
+      const end = pts[i + 1]!;
       const dx = end.x - start.x;
       const dy = end.y - start.y;
       const length = Math.hypot(dx, dy);
 
-      this.segments.push({
+      segs.push({
         start,
         end,
         length,
@@ -46,8 +63,19 @@ export class MapGrid {
 
       currentDist += length;
     }
+    return segs;
+  }
 
-    this.totalPathLength = currentDist;
+  public getRouteLength(routeIndex = 0): number {
+    return this.routeLengths[routeIndex] ?? this.totalPathLength;
+  }
+
+  public getPathLength(routeIndex = 0): number {
+    return this.getRouteLength(routeIndex);
+  }
+
+  public getRouteCount(): number {
+    return this.allRoutesSegments.length;
   }
 
   public cellToWorld(col: number, row: number): WorldCoord {
@@ -100,21 +128,24 @@ export class MapGrid {
   }
 
   /**
-   * Evaluates world coordinates and progress ratio along the path given distance.
+   * Evaluates world coordinates and progress ratio along the path given distance and routeIndex.
    */
-  public getPositionAlongPath(distance: number): {
+  public getPositionAlongPath(distance: number, routeIndex = 0): {
     position: WorldCoord;
     progress: number;
     completed: boolean;
     tangentAngle: number;
   } {
-    if (this.totalPathLength <= 0 || this.segments.length === 0) {
+    const segments = this.allRoutesSegments[routeIndex] || this.segments;
+    const pathLength = this.routeLengths[routeIndex] ?? this.totalPathLength;
+
+    if (pathLength <= 0 || segments.length === 0) {
       const fallback = this.data.entryPosition;
       return { position: fallback, progress: 0, completed: false, tangentAngle: 0 };
     }
 
-    if (distance >= this.totalPathLength) {
-      const lastSeg = this.segments[this.segments.length - 1]!;
+    if (distance >= pathLength) {
+      const lastSeg = segments[segments.length - 1]!;
       const dx = lastSeg.end.x - lastSeg.start.x;
       const dy = lastSeg.end.y - lastSeg.start.y;
       return {
@@ -126,7 +157,7 @@ export class MapGrid {
     }
 
     if (distance <= 0) {
-      const firstSeg = this.segments[0]!;
+      const firstSeg = segments[0]!;
       const dx = firstSeg.end.x - firstSeg.start.x;
       const dy = firstSeg.end.y - firstSeg.start.y;
       return {
@@ -138,7 +169,7 @@ export class MapGrid {
     }
 
     // Find the active segment
-    for (const seg of this.segments) {
+    for (const seg of segments) {
       if (distance <= seg.cumulativeEndDistance) {
         const segDist = distance - seg.cumulativeStartDistance;
         const t = seg.length > 0 ? segDist / seg.length : 0;
@@ -149,14 +180,14 @@ export class MapGrid {
 
         return {
           position: { x, y },
-          progress: distance / this.totalPathLength,
+          progress: distance / pathLength,
           completed: false,
           tangentAngle: Math.atan2(dy, dx),
         };
       }
     }
 
-    const lastSeg = this.segments[this.segments.length - 1]!;
+    const lastSeg = segments[segments.length - 1]!;
     return {
       position: lastSeg.end,
       progress: 1,

@@ -6,16 +6,16 @@ describe('GameEngine Combat Mechanics', () => {
     const engine = new GameEngine();
     engine.dispatch({ type: 'START_GAME', mapId: 'VASCULAR_RUN', difficultyId: 'ACUTE' });
 
-    // Place IgG at (0, 2), directly adjacent to path cell (0, 3) (distance ~48px, within 120px range)
+    // Place IgG at (0, 5), directly adjacent to path entry (distance ~53px, within 120px range)
     const placeRes = engine.dispatch({
       type: 'PLACE_TOWER',
       towerTypeId: 'IGG',
       col: 0,
-      row: 2,
+      row: 5,
     });
     expect(placeRes.ok).toBe(true);
 
-    // Spawn enemy at entry (col 0, row 3)
+    // Spawn enemy at entry (col 1, row 6)
     const enemy = engine.spawnEnemy('INFLUENZA', 0);
     const initialHp = enemy.hp;
 
@@ -32,8 +32,8 @@ describe('GameEngine Combat Mechanics', () => {
     const engine = new GameEngine();
     engine.dispatch({ type: 'START_GAME', mapId: 'VASCULAR_RUN', difficultyId: 'ACUTE' });
 
-    // Place IgM at (0, 2)
-    engine.dispatch({ type: 'PLACE_TOWER', towerTypeId: 'IGM', col: 0, row: 2 });
+    // Place IgM at (0, 5)
+    engine.dispatch({ type: 'PLACE_TOWER', towerTypeId: 'IGM', col: 0, row: 5 });
 
     // Spawn 2 enemies close together
     const enemy1 = engine.spawnEnemy('RHINOVIRUS', 0);
@@ -54,7 +54,7 @@ describe('GameEngine Combat Mechanics', () => {
     const engine = new GameEngine();
     engine.dispatch({ type: 'START_GAME', mapId: 'VASCULAR_RUN', difficultyId: 'ACUTE' });
 
-    engine.dispatch({ type: 'PLACE_TOWER', towerTypeId: 'IGA', col: 0, row: 2 });
+    engine.dispatch({ type: 'PLACE_TOWER', towerTypeId: 'IGA', col: 0, row: 5 });
     const enemy = engine.spawnEnemy('INFLUENZA', 0);
 
     // Tick simulation

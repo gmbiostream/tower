@@ -8,8 +8,8 @@ export type GamePhase =
   | 'VICTORY'
   | 'DEFEAT';
 
-export type DifficultyId = 'RESIDENT' | 'ACUTE' | 'CRITICAL';
-export type MapId = 'VASCULAR_RUN' | 'LYMPH_SPIRAL' | 'NEURAL_FORK';
+export type DifficultyId = 'RESIDENT' | 'ACUTE' | 'CRITICAL' | 'EXTREME' | 'EASY' | 'MEDIUM' | 'HARD';
+export type MapId = 'VASCULAR_RUN' | 'LYMPH_SPIRAL' | 'NEURAL_FORK' | 'PULMONARY_CONVERGENCE' | string;
 export type TargetMode = 'FIRST' | 'STRONGEST';
 
 export type TowerTypeId = 'IGG' | 'IGM' | 'IGA' | 'KILLER_T';
@@ -47,6 +47,8 @@ export interface MapData {
   rows: number;
   cellSize: number;
   waypoints: WorldCoord[];
+  routes?: WorldCoord[][];
+  theme?: 'VASCULAR' | 'LYMPHATIC' | 'NEURAL' | 'PULMONARY';
   pathGridCells: GridCoord[];
   blockedGridCells: GridCoord[];
   corePosition: WorldCoord;
@@ -109,6 +111,7 @@ export interface EnemyInstance {
   position: WorldCoord;
   progress: number;
   tangentAngle: number;
+  routeIndex?: number;
   isDead: boolean;
   isLeaked: boolean;
   statusEffects: StatusEffect[];

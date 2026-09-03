@@ -96,6 +96,44 @@ export class GameEngine {
     return set;
   }
 
+  /**
+   * Calculates performance-based discount percentage based on how well the player is doing.
+   * - Flawless 100% integrity gives +15% discount
+   * - High wave streak / waves completed gives up to +15% discount
+   * - Consecutive no-leak waves give up to 30% max dynamic discount!
+   */
+  public getPerformanceDiscount(): { discountPct: number; reason: string; efficiencyBonus: number } {
+    let discountPct = 0;
+    let reason = 'Normal Efficiency';
+    let efficiencyBonus = 1.0;
+
+    if (this.integrity >= 100) {
+      discountPct += 0.15;
+      reason = 'Flawless Immune Defense (+15% discount, +10% power)';
+      efficiencyBonus = 1.1;
+    } else if (this.integrity >= 80) {
+      discountPct += 0.08;
+      reason = 'High Cellular Resilience (+8% discount)';
+      efficiencyBonus = 1.05;
+    }
+
+    if (this.waveIndex >= 3) {
+      const waveBonus = Math.min(0.15, Math.floor(this.waveIndex / 2) * 0.05);
+      discountPct += waveBonus;
+      if (waveBonus > 0) {
+        reason += ` + Wave Veteran (${Math.round(waveBonus * 100)}%)`;
+      }
+    }
+
+    discountPct = Math.min(0.35, discountPct);
+    return { discountPct, reason, efficiencyBonus };
+  }
+
+  public getUpgradeCost(baseCost: number): number {
+    const { discountPct } = this.getPerformanceDiscount();
+    return Math.max(10, Math.round(baseCost * (1 - discountPct)));
+  }
+
   public checkPlacement(col: number, row: number, towerCost = 0): BuildabilityCheckResult {
     const result = this.mapGrid.checkBuildability(col, row, this.getOccupiedCells());
     if (!result.valid) {
@@ -309,10 +347,12 @@ export class GameEngine {
           return { ok: false, reason: 'Tower not found' };
         }
         const def = TOWER_DEFINITIONS[tower.typeId];
+        const perf = this.getPerformanceDiscount();
 
         // Level 1 -> 2 (Tier 1 upgrade)
         if (tower.level === 1) {
-          const cost = def.tier1Upgrade.cost;
+          const baseCost = def.tier1Upgrade.cost;
+          const cost = this.getUpgradeCost(baseCost);
           if (this.atp < cost) {
             return { ok: false, reason: 'INSUFFICIENT_ATP' };
           }
@@ -321,7 +361,7 @@ export class GameEngine {
           this.stats.totalAtpSpent += cost;
           tower.totalInvestedAtp += cost;
           tower.level = 2;
-          tower.damage = Math.round(tower.damage * def.tier1Upgrade.damageMultiplier);
+          tower.damage = Math.round(tower.damage * def.tier1Upgrade.damageMultiplier * perf.efficiencyBonus);
           tower.range = Math.round(tower.range * def.tier1Upgrade.rangeMultiplier);
           tower.fireIntervalMs = Math.round(
             tower.fireIntervalMs / def.tier1Upgrade.fireRateMultiplier
@@ -349,7 +389,8 @@ export class GameEngine {
             return { ok: false, reason: 'Must specify branch A or B' };
           }
           const branchDef = command.branch === 'A' ? def.branchA : def.branchB;
-          const cost = branchDef.cost;
+          const baseCost = branchDef.cost;
+          const cost = this.getUpgradeCost(baseCost);
           if (this.atp < cost) {
             return { ok: false, reason: 'INSUFFICIENT_ATP' };
           }
@@ -362,7 +403,7 @@ export class GameEngine {
           tower.special = branchDef.special;
 
           if (branchDef.damageMultiplier) {
-            tower.damage = Math.round(tower.damage * branchDef.damageMultiplier);
+            tower.damage = Math.round(tower.damage * branchDef.damageMultiplier * perf.efficiencyBonus);
           }
           if (branchDef.rangeMultiplier) {
             tower.range = Math.round(tower.range * branchDef.rangeMultiplier);
@@ -394,7 +435,8 @@ export class GameEngine {
         if (tower.level === 3) {
           const tier3 =
             tower.selectedBranch === 'A' ? def.tier3UpgradeA : def.tier3UpgradeB;
-          const cost = tier3.cost;
+          const baseCost = tier3.cost;
+          const cost = this.getUpgradeCost(baseCost);
           if (this.atp < cost) {
             return { ok: false, reason: 'INSUFFICIENT_ATP' };
           }
@@ -403,7 +445,7 @@ export class GameEngine {
           this.stats.totalAtpSpent += cost;
           tower.totalInvestedAtp += cost;
           tower.level = 4;
-          tower.damage = Math.round(tower.damage * tier3.damageMultiplier);
+          tower.damage = Math.round(tower.damage * tier3.damageMultiplier * perf.efficiencyBonus);
 
           this.events.emit({
             type: 'ATP_CHANGED',
@@ -621,7 +663,7 @@ export class GameEngine {
     }
   }
 
-  public spawnEnemy(typeId: EnemyTypeId, initialDistance = 0): EnemyInstance {
+  public spawnEnemy(typeId: EnemyTypeId, initialDistance = 0, routeIndex?: number): EnemyInstance {
     const def = ENEMY_DEFINITIONS[typeId];
     const enemyId = `enemy_${this.nextEntityId++}`;
     // Progressive per-wave scaling: enemies get tougher and faster as waves advance.
@@ -630,7 +672,9 @@ export class GameEngine {
     const waveScaleSpeed = 1 + this.waveIndex * 0.015; // +1.5% speed per wave beyond the first
     const hp = Math.round(def.baseHp * this.difficulty.enemyHealthMultiplier * waveScaleHp);
     const speed = def.baseSpeed * this.difficulty.enemySpeedMultiplier * waveScaleSpeed;
-    const pathInfo = this.mapGrid.getPositionAlongPath(initialDistance);
+    const routeCount = this.mapGrid.getRouteCount();
+    const assignedRoute = routeIndex !== undefined ? routeIndex : (this.enemies.size % routeCount);
+    const pathInfo = this.mapGrid.getPositionAlongPath(initialDistance, assignedRoute);
 
     const enemy: EnemyInstance = {
       id: enemyId,
@@ -650,6 +694,7 @@ export class GameEngine {
       position: pathInfo.position,
       progress: pathInfo.progress,
       tangentAngle: pathInfo.tangentAngle,
+      routeIndex: assignedRoute,
       isDead: false,
       isLeaked: false,
       statusEffects: [],
@@ -703,7 +748,7 @@ export class GameEngine {
 
       // Move along path
       enemy.distanceTravelled += enemy.effectiveSpeed * dtSeconds;
-      const pathInfo = this.mapGrid.getPositionAlongPath(enemy.distanceTravelled);
+      const pathInfo = this.mapGrid.getPositionAlongPath(enemy.distanceTravelled, enemy.routeIndex || 0);
       enemy.position = pathInfo.position;
       enemy.progress = pathInfo.progress;
       enemy.tangentAngle = pathInfo.tangentAngle;
@@ -1007,8 +1052,8 @@ export class GameEngine {
           // CLUSTER_FRAGMENTS_4: 4 sub-explosions around the impact point
           if (proj.special === 'CLUSTER_FRAGMENTS_4') {
             const fragDamage = Math.max(1, Math.round(proj.damage * 0.4));
-            const fragRadius = Math.round(proj.splashRadius * 0.6);
-            const offsetDist = proj.splashRadius * 0.8;
+            const fragRadius = Math.round(proj.splashRadius * 0.7);
+            const offsetDist = proj.splashRadius * 0.5;
             for (let i = 0; i < 4; i++) {
               const angle = (Math.PI / 4) + (i * Math.PI) / 2; // 45°, 135°, 225°, 315°
               const fragCenter = {
@@ -1159,7 +1204,7 @@ export class GameEngine {
       for (let i = 0; i < enemy.splitsOnDeath.count; i++) {
         // Stagger split children slightly behind parent progress
         const spawnDist = Math.max(0, enemy.distanceTravelled - i * 14);
-        this.spawnEnemy(enemy.splitsOnDeath.childTypeId, spawnDist);
+        this.spawnEnemy(enemy.splitsOnDeath.childTypeId, spawnDist, enemy.routeIndex);
       }
     }
   }

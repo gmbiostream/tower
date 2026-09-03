@@ -4,18 +4,48 @@ All notable changes to **Cyber-Immunology: Neon Microcosm** are documented in th
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [Unreleased] — second_implementation
+## [0.2.0] — 2026-09-03 — second_implementation
 
-Major feature upgrade cycle (in progress).
+Major visual, audio, upgrade system, and content expansion release.
 
 ### Added
-- _(pending)_
+- **Dynamic Performance-Based Upgrade System**:
+  - Implemented dynamic ATP discounts and efficiency multipliers in `GameEngine` based on player performance:
+    - Flawless Organ Integrity ($\ge 100\%$): grants $+15\%$ upgrade discount and $+10\%$ efficiency/damage bonus.
+    - High Resilience ($\ge 80\%$): grants $+8\%$ discount and $+5\%$ efficiency bonus.
+    - Wave Veteran Streak: adds $+5\%$ to $+15\%$ cumulative discount as waves are successfully defended without major damage.
+  - Active tower inspector displays real-time performance discount badge, discounted ATP costs, and original price strikethrough.
+- **Microscopy-Inspired Vector Bio-Sprites**:
+  - Added vector SVG sprites module (`src/ui/towerSprites.ts`) for all 4 antibody tower types, 8 upgrade specializations, and UI currency icons (ATP).
+  - Updated in-game canvas renderer (`GameRenderer`) with realistic electron-microscopy geometry:
+    - IgG Pulse Sentinel: tangled fibril network with central Y-antibody photon emitter.
+    - IgM Cluster Cannon: pentameric 5-lobed macromolecule with satellite plasma nodes and J-chain.
+    - IgA Cryo-Tether: dense fibrous cell body with crystalline ice spikes and secretory linkages.
+    - Killer T-Cell: gold cylindrical microvilli crown, cytotoxic thermal core, and blue interior cytoplasm.
+    - Realistic enemy morphologies for Rhinovirus (fibril vertices), Influenza (bulbous glycoprotein spike crown), Corona Titan (armored carapace plates), and Cytokine Storm boss.
+- **Sector Vector SVG Map Previews & Pulmonary Junction Map**:
+  - Added dedicated high-fidelity SVG map preview illustrations for all sectors: Vascular Run, Lymph Spiral, Neural Fork, and Pulmonary Junction (`src/ui/mapPreviews.ts`).
+  - Added **Pulmonary Junction** 4th sector map featuring dual-bronchial corridors and respiratory core convergence.
+- **Zero-Overhead Soundtrack Streaming & Web Audio Synthesis**:
+  - Added non-blocking soundtrack streaming (`playMusicTrack`, `pauseMusicTrack`, `stopMusicTrack`) routed through Web Audio GainNodes with fallback.
+  - Rebalanced ambient Celtic/Dorian procedural soundtrack gain and implemented instant gesture-based audio unlock across all menu buttons.
+  - Added sound volume and mute controls in pause menu modal.
+- **Comprehensive Unit & E2E Test Suite**:
+  - Added 30+ new unit tests covering audio synthesis, performance upgrade scaling, pause modal, multi-route maps, and Playwright E2E tests for sector selection and full gameplay loops (80 unit tests total).
 
 ### Changed
-- _(pending)_
+- Replaced terminology from "Specialization Branches" to **"In-Game Tower Upgrades"** across all modals, tower inspector, and help guide.
+- Updated upgrade branch names and descriptions to match bio-inspired themes:
+  - IgG: **Hyperpulse Barrage** (Branch A) & **Antibody Storm** (Branch B).
+  - IgM: **Toxin Nebula** (Branch A) & **Chain Reaction** (Branch B).
+  - IgA: **Deep Freeze** (Branch A) & **Glacial Aura** (Branch B).
+  - Killer T: **Perforin Lance** (Branch A) & **Cytotoxic Nova** (Branch B).
+- Upgraded tower selection dock, tower preview modal, and level select cards with vector SVG art.
 
 ### Fixed
-- _(pending)_
+- Fixed audio autoplay restrictions by unlocking `AudioContext` on initial user interactions.
+- Fixed volume attenuation that previously made ambient synthesizer tracks inaudible.
+- Fixed diagonal path rasterization and buildability bounding checks.
 
 ## [0.1.0] — 2026-09-03 — first_implementation
 

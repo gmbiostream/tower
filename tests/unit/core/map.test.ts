@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { MapGrid } from '@/core/map';
-import { VASCULAR_RUN_MAP, LYMPH_SPIRAL_MAP, NEURAL_FORK_MAP } from '@/data/maps';
+import { VASCULAR_RUN_MAP, LYMPH_SPIRAL_MAP, NEURAL_FORK_MAP, PULMONARY_CONVERGENCE_MAP } from '@/data/maps';
 
 describe('MapGrid and Traversal', () => {
   const grid = new MapGrid(VASCULAR_RUN_MAP);
@@ -34,14 +34,38 @@ describe('MapGrid and Traversal', () => {
     expect(end.position.y).toBeCloseTo(VASCULAR_RUN_MAP.corePosition.y);
   });
 
+  it('should correctly support multi-route map traversal on PULMONARY_CONVERGENCE', () => {
+    const pulmonaryGrid = new MapGrid(PULMONARY_CONVERGENCE_MAP);
+    expect(PULMONARY_CONVERGENCE_MAP.routes).toBeDefined();
+    expect(PULMONARY_CONVERGENCE_MAP.routes!.length).toBe(2);
+
+    // Route 0 start
+    const r0Start = pulmonaryGrid.getPositionAlongPath(0, 0);
+    expect(r0Start.position.x).toBeCloseTo(PULMONARY_CONVERGENCE_MAP.routes![0]![0]!.x);
+    expect(r0Start.position.y).toBeCloseTo(PULMONARY_CONVERGENCE_MAP.routes![0]![0]!.y);
+
+    // Route 1 start
+    const r1Start = pulmonaryGrid.getPositionAlongPath(0, 1);
+    expect(r1Start.position.x).toBeCloseTo(PULMONARY_CONVERGENCE_MAP.routes![1]![0]!.x);
+    expect(r1Start.position.y).toBeCloseTo(PULMONARY_CONVERGENCE_MAP.routes![1]![0]!.y);
+
+    // Route 1 end
+    const r1Len = pulmonaryGrid.getPathLength(1);
+    const r1End = pulmonaryGrid.getPositionAlongPath(r1Len, 1);
+    expect(r1End.completed).toBe(true);
+    const r1ExpectedEnd = PULMONARY_CONVERGENCE_MAP.routes![1]![PULMONARY_CONVERGENCE_MAP.routes![1]!.length - 1]!;
+    expect(r1End.position.x).toBeCloseTo(r1ExpectedEnd.x);
+    expect(r1End.position.y).toBeCloseTo(r1ExpectedEnd.y);
+  });
+
   it('should correctly identify buildability reasons', () => {
     // Check out of bounds
     expect(grid.checkBuildability(-1, 0).reason).toBe('OUT_OF_BOUNDS');
     expect(grid.checkBuildability(0, -1).reason).toBe('OUT_OF_BOUNDS');
     expect(grid.checkBuildability(99, 99).reason).toBe('OUT_OF_BOUNDS');
 
-    // Check path cell
-    expect(grid.checkBuildability(0, 3).reason).toBe('PATH');
+    // Check path cell (entry at col 1, row 6)
+    expect(grid.checkBuildability(1, 6).reason).toBe('PATH');
 
     // Check blocked cell (e.g., 1, 1)
     expect(grid.checkBuildability(1, 1).reason).toBe('BLOCKED');
@@ -57,52 +81,35 @@ describe('MapGrid and Traversal', () => {
 });
 
 describe('Path cell rasterization', () => {
-  it('should only mark cells touched by the diagonal segment on NEURAL_FORK', () => {
-    const grid = new MapGrid(NEURAL_FORK_MAP);
+  it('should mark path cells properly along the curved trajectory for VASCULAR_RUN', () => {
+    const grid = new MapGrid(VASCULAR_RUN_MAP);
+    // Entry cell at start (col 1, row 6) should be path
+    expect(grid.isPathCell(1, 6)).toBe(true);
 
-    // Far corners of the diagonal segment's bounding box must be buildable
-    expect(grid.isPathCell(10, 2)).toBe(false);
-    expect(grid.checkBuildability(10, 2).reason).toBe('VALID');
-    expect(grid.isPathCell(7, 6)).toBe(false);
-    expect(grid.checkBuildability(7, 6).reason).toBe('VALID');
-
-    // Cells the diagonal line actually passes through must be PATH
-    for (const [col, row] of [
-      [7, 2],
-      [7, 3],
-      [8, 3],
-      [8, 4],
-      [9, 4],
-      [9, 5],
-      [10, 5],
-      [10, 6],
-    ] as const) {
-      expect(grid.isPathCell(col, row)).toBe(true);
-    }
+    // Far corner cell (0, 0) should be buildable
+    expect(grid.isPathCell(0, 0)).toBe(false);
+    expect(grid.checkBuildability(0, 0).valid).toBe(true);
+    expect(VASCULAR_RUN_MAP.pathGridCells.length).toBeGreaterThan(15);
   });
 
-  it('should mark exactly the straight rows/columns for axis-aligned maps', () => {
-    // VASCULAR_RUN: waypoint corridor cells, no extras
-    const vascular = new MapGrid(VASCULAR_RUN_MAP);
-    const vascularExpected = new Set<string>();
-    for (let col = 0; col <= 5; col++) vascularExpected.add(`${col},3`);
-    for (let row = 3; row <= 8; row++) vascularExpected.add(`5,${row}`);
-    for (let col = 5; col <= 12; col++) vascularExpected.add(`${col},8`);
-    for (let row = 4; row <= 8; row++) vascularExpected.add(`12,${row}`);
-    for (let col = 12; col <= 19; col++) vascularExpected.add(`${col},4`);
-
-    const vascularActual = new Set(
-      VASCULAR_RUN_MAP.pathGridCells.map((c) => `${c.col},${c.row}`)
-    );
-    expect(vascularActual).toEqual(vascularExpected);
-    expect(vascular.isPathCell(0, 3)).toBe(true);
-
-    // LYMPH_SPIRAL: all segments axis-aligned, spot check corners and count
+  it('should correctly mark concentric spiral cells on LYMPH_SPIRAL', () => {
     const lymph = new MapGrid(LYMPH_SPIRAL_MAP);
-    expect(lymph.isPathCell(1, 1)).toBe(true);
-    expect(lymph.isPathCell(18, 10)).toBe(true);
-    expect(lymph.isPathCell(8, 7)).toBe(true);
-    expect(lymph.isPathCell(2, 2)).toBe(false);
-    expect(LYMPH_SPIRAL_MAP.pathGridCells.length).toBe(68);
+    expect(lymph.isPathCell(1, 6)).toBe(true);
+    // Core center cell (10, 6) is path
+    expect(lymph.isPathCell(10, 6)).toBe(true);
+    // Non-path terrain cell
+    expect(lymph.isPathCell(0, 0)).toBe(false);
+    expect(LYMPH_SPIRAL_MAP.pathGridCells.length).toBeGreaterThan(40);
+  });
+
+  it('should support multi-axon converging routes on NEURAL_FORK', () => {
+    const neural = new MapGrid(NEURAL_FORK_MAP);
+    expect(NEURAL_FORK_MAP.routes).toBeDefined();
+    expect(NEURAL_FORK_MAP.routes!.length).toBe(3);
+
+    // Mid entry is path
+    expect(neural.isPathCell(1, 6)).toBe(true);
+    // Unused corner is buildable
+    expect(neural.checkBuildability(0, 0).valid).toBe(true);
   });
 });

@@ -52,8 +52,8 @@ describe('GameEngine Phases & Commands', () => {
     expect(engine.score).toBeGreaterThan(initialScore);
   });
 
-  it('should initialize correctly with new v0.2.0 difficulties (EASY, MEDIUM, HARD, EXTREME)', () => {
-    const difficulties = ['EASY', 'MEDIUM', 'HARD', 'EXTREME'] as const;
+  it('should initialize correctly with v0.2.0 difficulties (RESIDENT, ACUTE, CRITICAL, EXTREME)', () => {
+    const difficulties = ['RESIDENT', 'ACUTE', 'CRITICAL', 'EXTREME'] as const;
     for (const diff of difficulties) {
       const engine = new GameEngine();
       const result = engine.dispatch({

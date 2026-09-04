@@ -2,12 +2,40 @@ import { GameEngine } from '@/core/engine';
 import { GameRenderer } from '@/render/gameRenderer';
 import { SoundSynth } from '@/audio/synth';
 import { HighScoreManager } from '@/persistence/highScores';
-import { TowerTypeId, MapId, DifficultyId } from '@/core/types';
-import { TOWER_DEFINITIONS } from '@/data/towers';
+import { TowerTypeId, MapId, DifficultyId, EnemyTypeId, UpgradeBranchId } from '@/core/types';
+import { TOWER_DEFINITIONS, TOWER_DOCK_ORDER, getBranch } from '@/data/towers';
 import { ALL_MAPS } from '@/data/maps';
 import { DIFFICULTY_MODIFIERS } from '@/data/difficulties';
+import { ENEMY_DEFINITIONS } from '@/data/enemies';
+import { GAME_WAVES } from '@/data/waves';
 import { getMapPreviewSvg, MAP_PREVIEW_META } from './mapPreviews';
-import { getTowerSvg, getBranchUpgradeSvg } from './towerSprites';
+import { getTowerSvg, getBranchUpgradeSvg, getATPIconSvg, getEnemySvg, getHealthBarSvg, getScoreIconSvg } from './towerSprites';
+
+const BRANCH_ACCENTS: Record<UpgradeBranchId, { text: string; border: string; bg: string }> = {
+  A: { text: 'text-bio-cyan', border: 'border-bio-cyan/40', bg: 'bg-bio-cyan/15 hover:bg-bio-cyan/25' },
+  B: { text: 'text-bio-magenta', border: 'border-bio-magenta/40', bg: 'bg-bio-magenta/15 hover:bg-bio-magenta/25' },
+  C: { text: 'text-sky-300', border: 'border-sky-400/40', bg: 'bg-sky-400/15 hover:bg-sky-400/25' },
+  D: { text: 'text-lime-300', border: 'border-lime-400/40', bg: 'bg-lime-400/15 hover:bg-lime-400/25' },
+  E: { text: 'text-bio-amber', border: 'border-bio-amber/40', bg: 'bg-bio-amber/15 hover:bg-bio-amber/25' },
+};
+
+const DAMAGE_TYPE_LABEL: Record<string, string> = {
+  KINETIC: 'Kinetic',
+  PLASMA: 'Plasma',
+  CRYO: 'Cryo',
+  THERMAL: 'Thermal',
+  PHAGOCYTIC: 'Phagocytic',
+};
+
+/** First wave (1-based) in which an enemy type appears, or null if never scheduled. */
+function firstWaveFor(enemyTypeId: EnemyTypeId): number | null {
+  for (const wave of GAME_WAVES) {
+    if (wave.groups.some((g) => g.enemyTypeId === enemyTypeId)) return wave.waveNumber;
+  }
+  return null;
+}
+
+const formatPct = (mult: number): string => `+${Math.round((mult - 1) * 100)}%`;
 
 export class GameUI {
   private engine: GameEngine;
@@ -40,8 +68,13 @@ export class GameUI {
         this.synth.playWaveStart(isFirst, isFinal);
         this.showWaveAnnouncement(event.waveIndex, isFirst, isFinal);
       }
+      if (event.type === 'TOWER_UNLOCKED') {
+        this.synth.playUpgrade();
+        this.renderTowerDock();
+        this.showUnlockAnnouncement(event.towerTypeId);
+      }
       if (event.type === 'TOWER_FIRED') {
-        if (event.projectileType === 'CLUSTER') {
+        if (event.projectileType === 'CLUSTER' || event.projectileType === 'ENGULF') {
           this.synth.playExplosion();
         } else if (event.projectileType === 'CRYO_TETHER') {
           this.synth.playFreeze();
@@ -95,7 +128,7 @@ export class GameUI {
 
         <div class="flex items-center gap-8">
           <div class="flex items-center gap-2.5">
-            <span class="text-2xl">⚡</span>
+            <span class="text-2xl">${getATPIconSvg(30)}</span>
             <div class="flex flex-col">
               <span class="text-[10px] uppercase text-bio-muted font-body tracking-wider">Available ATP</span>
               <span id="hud-atp" class="font-mono text-2xl font-black text-bio-amber neon-glow-amber" data-testid="hud-atp">450</span>
@@ -104,7 +137,7 @@ export class GameUI {
 
           <!-- Bigger Organ Health Display -->
           <div id="hud-health-container" class="flex items-center gap-3 px-3 py-1.5 rounded-xl border border-bio-border/60 bg-bio-card/60 transition-all duration-200">
-            <span class="text-2xl animate-heartbeat">❤️</span>
+            <span class="text-2xl animate-heartbeat">${getHealthBarSvg(34, this.engine.integrity / 100)}</span>
             <div class="flex flex-col min-w-[170px]">
               <div class="flex justify-between items-baseline text-xs font-body tracking-wider mb-0.5">
                 <span class="text-bio-muted uppercase text-[10px] font-bold">ORGAN INTEGRITY</span>
@@ -118,7 +151,7 @@ export class GameUI {
 
           <div class="flex flex-col">
             <span class="text-[10px] uppercase text-bio-muted font-body tracking-wider">Score</span>
-            <span id="hud-score" class="font-mono text-xl font-bold text-purple-300" data-testid="hud-score">0</span>
+            <span class="flex items-center gap-1"><span>${getScoreIconSvg(22)}</span><span id="hud-score" class="font-mono text-xl font-bold text-purple-300" data-testid="hud-score">0</span></span>
           </div>
         </div>
 
@@ -204,6 +237,33 @@ export class GameUI {
     }, 2200);
   }
 
+  public showUnlockAnnouncement(towerTypeId: TowerTypeId): void {
+    const banner = document.getElementById('wave-banner-overlay');
+    if (!banner) return;
+    const def = TOWER_DEFINITIONS[towerTypeId];
+
+    banner.classList.remove('hidden', 'animate-pvz-banner');
+    void banner.offsetWidth;
+
+    banner.innerHTML = `
+      <div class="px-8 py-4 rounded-2xl border-2 border-violet-400 text-violet-200 bg-bio-surface/95 shadow-[0_0_50px_rgba(167,139,250,0.45)] text-center flex items-center gap-4" data-testid="unlock-banner">
+        <div class="w-14 h-14 rounded-xl bg-slate-950 flex items-center justify-center border" style="border-color: ${def.color}99;">${getTowerSvg(towerTypeId, 50)}</div>
+        <div class="text-left">
+          <h2 class="font-title text-2xl font-extrabold tracking-widest uppercase drop-shadow-lg">NEW SENTINEL SYNTHESIZED</h2>
+          <p class="font-mono text-xs text-violet-300 uppercase tracking-widest font-bold">${def.name} · ${def.role} — counters heat-shielded pathogens</p>
+        </div>
+      </div>
+    `;
+
+    banner.style.top = '40%';
+    banner.style.left = '50%';
+    banner.classList.add('animate-pvz-banner');
+
+    window.setTimeout(() => {
+      banner.classList.add('hidden');
+    }, 3200);
+  }
+
   public animateCoreDamage(): void {
     const healthContainer = document.getElementById('hud-health-container');
     if (!healthContainer) return;
@@ -221,35 +281,39 @@ export class GameUI {
     const dock = document.getElementById('hud-dock');
     if (!dock) return;
 
-    const towerTypes: TowerTypeId[] = ['IGG', 'IGM', 'IGA', 'KILLER_T'];
-    dock.innerHTML = towerTypes
+    dock.innerHTML = TOWER_DOCK_ORDER
       .map((typeId, idx) => {
         const def = TOWER_DEFINITIONS[typeId];
         const hotkey = idx + 1;
         const isSelected = this.renderer.activePlacementTower === typeId;
+        const isLocked = !this.engine.isTowerUnlocked(typeId);
         const canAfford = this.engine.atp >= def.cost;
 
         return `
           <button
             data-tower-type="${typeId}"
-            class="tower-card relative flex items-center gap-3 px-3 py-2 rounded-xl border transition-all duration-200 cursor-pointer ${
-              isSelected
-                ? 'bg-bio-cyan/20 border-bio-cyan shadow-[0_0_15px_rgba(0,245,255,0.3)]'
-                : canAfford
-                ? 'bg-bio-card/90 hover:bg-bio-card border-bio-border hover:border-bio-cyan/50 text-bio-text'
-                : 'bg-bio-card/40 border-bio-border/40 text-bio-muted opacity-60'
+            ${isLocked ? 'disabled' : ''}
+            class="tower-card relative flex items-center gap-3 px-3 py-2 rounded-xl border transition-all duration-200 ${
+              isLocked
+                ? 'bg-bio-card/30 border-dashed border-bio-border/50 text-bio-muted opacity-70 cursor-not-allowed'
+                : isSelected
+                  ? 'bg-bio-cyan/20 border-bio-cyan shadow-[0_0_15px_rgba(0,245,255,0.3)] cursor-pointer'
+                  : canAfford
+                    ? 'bg-bio-card/90 hover:bg-bio-card border-bio-border hover:border-bio-cyan/50 text-bio-text cursor-pointer'
+                    : 'bg-bio-card/40 border-bio-border/40 text-bio-muted opacity-60 cursor-pointer'
             }"
             data-testid="tower-card-${typeId.toLowerCase()}"
+            title="${isLocked ? `Unlocks at wave ${def.unlockWave}` : def.ammunition}"
           >
             <span class="absolute -top-2 -left-2 w-5 h-5 bg-bio-surface border border-bio-border rounded text-[10px] font-mono flex items-center justify-center font-bold text-bio-cyan">
               ${hotkey}
             </span>
-            <div class="w-10 h-10 rounded-xl overflow-hidden flex items-center justify-center bg-slate-950/80 border" style="border-color: ${def.color}66;">
+            <div class="w-10 h-10 rounded-xl overflow-hidden flex items-center justify-center bg-slate-950/80 border ${isLocked ? 'grayscale' : ''}" style="border-color: ${def.color}66;">
               ${getTowerSvg(typeId, 36)}
             </div>
             <div class="flex flex-col text-left">
-              <span class="text-xs font-bold font-title tracking-wide text-bio-text">${def.name}</span>
-              <span class="text-[11px] font-body text-bio-muted">${def.role}</span>
+              <span class="text-xs font-bold font-title tracking-wide ${isLocked ? 'text-bio-muted' : 'text-bio-text'}">${def.name}</span>
+              <span class="text-[11px] font-body text-bio-muted">${isLocked ? `🔒 Unlocks wave ${def.unlockWave}` : def.role}</span>
             </div>
             <div class="flex items-center gap-1 ml-2 font-mono text-sm font-bold text-bio-amber">
               ⚡ ${def.cost}
@@ -262,6 +326,7 @@ export class GameUI {
     dock.querySelectorAll<HTMLButtonElement>('.tower-card').forEach((btn) => {
       btn.addEventListener('click', () => {
         const typeId = btn.getAttribute('data-tower-type') as TowerTypeId;
+        if (!this.engine.isTowerUnlocked(typeId)) return;
         if (this.renderer.activePlacementTower === typeId) {
           this.renderer.activePlacementTower = null;
         } else {
@@ -344,7 +409,6 @@ export class GameUI {
     const perf = this.engine.getPerformanceDiscount();
 
     let upgradeSectionHtml = '';
-    const formatPct = (mult: number): string => `+${Math.round((mult - 1) * 100)}%`;
 
     if (tower.level === 1) {
       const baseCost = def.tier1Upgrade.cost;
@@ -365,60 +429,44 @@ export class GameUI {
             ? 'bg-bio-cyan/20 hover:bg-bio-cyan/30 text-bio-cyan border-bio-cyan/50'
             : 'bg-bio-card/40 text-bio-muted border-bio-border/40 opacity-50'
         }" data-testid="btn-upgrade-t1">
-          ⬆️ UPGRADE TIER 1 (⚡ ${uCost}${isDiscounted ? ` <span class="text-bio-emerald text-[10px] font-normal line-through">⚡ ${baseCost}</span>` : ''})
-          <span class="block text-[10px] font-body text-bio-muted font-normal mt-0.5">${t1Parts}</span>
+          ⬆️ TIER 2: REINFORCE (⚡ ${uCost}${isDiscounted ? ` <span class="text-bio-emerald text-[10px] font-normal line-through">⚡ ${baseCost}</span>` : ''})
+          <span class="block text-[10px] font-body text-bio-muted font-normal mt-0.5">${t1Parts} · unlocks Tier 3 specialization</span>
         </button>
       `;
     } else if (tower.level === 2) {
-      const bABaseCost = def.branchA.cost;
-      const bBBaseCost = def.branchB.cost;
-      const bACost = this.engine.getUpgradeCost(bABaseCost);
-      const bBCost = this.engine.getUpgradeCost(bBBaseCost);
-      const canA = this.engine.atp >= bACost;
-      const canB = this.engine.atp >= bBCost;
-
       upgradeSectionHtml = `
-        <div class="mt-3 flex flex-col gap-2">
-          <span class="text-[11px] font-body uppercase text-bio-amber tracking-wider font-bold">In-Game Tower Upgrades:</span>
-          <button id="btn-branch-a" class="flex items-center gap-2.5 py-2 px-3 rounded-xl border font-mono text-xs text-left transition ${
-            canA
-              ? 'bg-bio-cyan/15 hover:bg-bio-cyan/25 text-bio-cyan border-bio-cyan/40'
-              : 'bg-bio-card/40 text-bio-muted border-bio-border/40 opacity-50'
-          }" data-testid="btn-branch-a">
-            <div class="flex-shrink-0 w-8 h-8 rounded-lg bg-slate-950 flex items-center justify-center border border-bio-cyan/40">
-              ${getBranchUpgradeSvg(def.branchA.special || def.branchA.name, 28)}
-            </div>
-            <div class="flex-grow">
-              <div class="font-bold flex justify-between">
-                <span>A: ${def.branchA.name}</span>
-                <span class="text-bio-amber">⚡ ${bACost}</span>
-              </div>
-              <div class="text-[10px] font-body text-bio-muted">${def.branchA.description}</div>
-            </div>
-          </button>
-          <button id="btn-branch-b" class="flex items-center gap-2.5 py-2 px-3 rounded-xl border font-mono text-xs text-left transition ${
-            canB
-              ? 'bg-bio-magenta/15 hover:bg-bio-magenta/25 text-bio-magenta border-bio-magenta/40'
-              : 'bg-bio-card/40 text-bio-muted border-bio-border/40 opacity-50'
-          }" data-testid="btn-branch-b">
-            <div class="flex-shrink-0 w-8 h-8 rounded-lg bg-slate-950 flex items-center justify-center border border-bio-magenta/40">
-              ${getBranchUpgradeSvg(def.branchB.special || def.branchB.name, 28)}
-            </div>
-            <div class="flex-grow">
-              <div class="font-bold flex justify-between">
-                <span>B: ${def.branchB.name}</span>
-                <span class="text-bio-amber">⚡ ${bBCost}</span>
-              </div>
-              <div class="text-[10px] font-body text-bio-muted">${def.branchB.description}</div>
-            </div>
-          </button>
+        <div class="mt-3 flex flex-col gap-1.5">
+          <span class="text-[11px] font-body uppercase text-bio-amber tracking-wider font-bold">Tier 3 — choose 1 of 5 specializations:</span>
+          <div class="flex flex-col gap-1.5 max-h-64 overflow-y-auto pr-0.5">
+          ${def.branches
+            .map((branch) => {
+              const cost = this.engine.getUpgradeCost(branch.cost);
+              const can = this.engine.atp >= cost;
+              const accent = BRANCH_ACCENTS[branch.id];
+              return `
+              <button data-branch-id="${branch.id}" class="branch-btn flex items-center gap-2.5 py-1.5 px-2.5 rounded-xl border font-mono text-xs text-left transition ${
+                can ? `${accent.bg} ${accent.text} ${accent.border}` : 'bg-bio-card/40 text-bio-muted border-bio-border/40 opacity-50'
+              }" data-testid="btn-branch-${branch.id.toLowerCase()}">
+                <div class="flex-shrink-0 w-8 h-8 rounded-lg bg-slate-950 flex items-center justify-center border ${accent.border}">
+                  ${getBranchUpgradeSvg(branch.special || branch.name, 28)}
+                </div>
+                <div class="flex-grow min-w-0">
+                  <div class="font-bold flex justify-between gap-2">
+                    <span class="truncate">${branch.id}: ${branch.name}</span>
+                    <span class="text-bio-amber flex-shrink-0">⚡ ${cost}</span>
+                  </div>
+                  <div class="text-[10px] font-body text-bio-muted leading-snug">${branch.description}</div>
+                </div>
+              </button>`;
+            })
+            .join('')}
+          </div>
         </div>
       `;
     } else if (tower.level === 3) {
-      const isBranchA = tower.selectedBranch === 'A';
-      const tier3 = isBranchA ? def.tier3UpgradeA : def.tier3UpgradeB;
-      const baseCost = tier3.cost;
-      const cost = this.engine.getUpgradeCost(baseCost);
+      const branch = tower.selectedBranch ? getBranch(def, tower.selectedBranch) : undefined;
+      const apex = branch?.apex ?? def.branches[0]!.apex;
+      const cost = this.engine.getUpgradeCost(apex.cost);
       const canAfford = this.engine.atp >= cost;
 
       upgradeSectionHtml = `
@@ -427,17 +475,19 @@ export class GameUI {
             ? 'bg-bio-amber/20 hover:bg-bio-amber/30 text-bio-amber border-bio-amber/50'
             : 'bg-bio-card/40 text-bio-muted border-bio-border/40 opacity-50'
         }" data-testid="btn-upgrade-t3">
-          👑 MASTER APEX TIER (⚡ ${cost})
-          <span class="block text-[10px] font-body text-bio-muted font-normal mt-0.5">${formatPct(tier3.damageMultiplier)} Apex Bio-Damage Multiplier</span>
+          👑 TIER 4: APEX ${branch ? branch.name.toUpperCase() : 'MASTERY'} (⚡ ${cost})
+          <span class="block text-[10px] font-body text-bio-muted font-normal mt-0.5">${formatPct(apex.damageMultiplier)} Apex Bio-Damage Multiplier</span>
         </button>
       `;
     } else {
       upgradeSectionHtml = `
         <div class="mt-3 text-center py-2 bg-bio-card/60 rounded-xl border border-bio-border/40 text-[11px] font-mono text-bio-emerald font-bold">
-          ⭐ MAXIMUM APEX TIER REACHED
+          ⭐ TIER 4 APEX — MAXIMUM EVOLUTION
         </div>
       `;
     }
+
+    const selectedBranchDef = tower.selectedBranch ? getBranch(def, tower.selectedBranch) : undefined;
 
     inspector.innerHTML = `
       <div class="flex items-center justify-between pb-3 border-b border-bio-border">
@@ -464,10 +514,12 @@ export class GameUI {
       }
 
       <div class="grid grid-cols-2 gap-2 my-3 font-mono text-xs text-bio-muted">
-        <div>DMG: <span class="text-bio-text font-bold">${tower.damage}</span></div>
+        <div>DMG: <span class="text-bio-text font-bold">${tower.damage}</span> <span class="text-[9px] text-bio-muted">${DAMAGE_TYPE_LABEL[tower.damageType] ?? tower.damageType}</span></div>
         <div>RNG: <span class="text-bio-text font-bold">${tower.range}px</span></div>
         <div>RATE: <span class="text-bio-text font-bold">${(1000 / tower.fireIntervalMs).toFixed(1)}/s</span></div>
-        <div>TIER: <span class="text-bio-amber font-bold">${tower.level} ${tower.selectedBranch ? `(${tower.selectedBranch})` : ''}</span></div>
+        <div>TIER: <span class="text-bio-amber font-bold">${tower.level}/4</span></div>
+        ${selectedBranchDef ? `<div class="col-span-2 text-[10px]">SPEC: <span class="${BRANCH_ACCENTS[selectedBranchDef.id].text} font-bold">${selectedBranchDef.id} · ${selectedBranchDef.name}</span></div>` : ''}
+        <div class="col-span-2 text-[10px] text-bio-muted mt-1">MEMBRANE LIFESPAN: <span class="text-bio-cyan">${Math.max(0, Math.ceil((tower.lifespanMs - tower.ageMs) / 1000))}s</span> · RECYCLE VALUE: ⚡${Math.floor(tower.totalInvestedAtp * 0.7)}</div>
       </div>
 
       <!-- Target Mode Toggle -->
@@ -501,14 +553,12 @@ export class GameUI {
       this.updateHUD();
     });
 
-    document.getElementById('btn-branch-a')?.addEventListener('click', () => {
-      this.engine.dispatch({ type: 'UPGRADE_TOWER', towerId: tower.id, branch: 'A' });
-      this.updateHUD();
-    });
-
-    document.getElementById('btn-branch-b')?.addEventListener('click', () => {
-      this.engine.dispatch({ type: 'UPGRADE_TOWER', towerId: tower.id, branch: 'B' });
-      this.updateHUD();
+    inspector.querySelectorAll<HTMLButtonElement>('.branch-btn').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const branch = btn.getAttribute('data-branch-id') as UpgradeBranchId;
+        this.engine.dispatch({ type: 'UPGRADE_TOWER', towerId: tower.id, branch });
+        this.updateHUD();
+      });
     });
 
     document.getElementById('btn-upgrade-t3')?.addEventListener('click', () => {
@@ -529,11 +579,11 @@ export class GameUI {
     modal.classList.remove('hidden');
     modal.innerHTML = `
       <div class="flex flex-col items-center max-w-lg w-full p-8 bg-bio-surface/95 border border-bio-cyan/40 rounded-2xl shadow-[0_0_50px_rgba(0,245,255,0.2)] text-center">
-        <h1 class="font-title text-4xl font-extrabold text-bio-cyan neon-glow-cyan tracking-wider mb-1">
-          CYBER-IMMUNOLOGY
+        <h1 class="text-[#00f5ff] neon-glow-cyan font-title font-extrabold text-5xl tracking-widest">
+          MICROCOSM
         </h1>
-        <p class="font-body text-xs text-bio-muted uppercase tracking-widest mb-6">
-          v0.2.0 • Cellular Defense Simulator • Neon Microcosm
+        <p class="font-body text-sm text-cyan-300 tracking-wider mb-6">
+          a tower defense game.
         </p>
 
         <div class="flex flex-col w-full gap-3 mb-6">
@@ -541,22 +591,19 @@ export class GameUI {
             START DEFENSE
           </button>
           <button id="btn-menu-tower-preview" class="w-full py-2.5 bg-bio-card hover:bg-bio-surface text-amber-300 font-mono text-sm font-bold tracking-wider rounded-xl border border-bio-border hover:border-amber-400/50 transition" data-testid="btn-menu-tower-preview">
-            🧬 ANTIBODY MATRIX (TOWER SPECS)
+            🧬 ANTIBODIES & HAZARDS (TOWER SPECS)
           </button>
           <button id="btn-menu-level-select" class="w-full py-2.5 bg-bio-card hover:bg-bio-surface text-bio-cyan font-mono text-sm font-bold tracking-wider rounded-xl border border-bio-border hover:border-bio-cyan/50 transition" data-testid="btn-menu-level-select">
-            🗺️ MAP & DIFFICULTY SELECT
+            🗺️ MAPS
           </button>
           <button id="btn-menu-high-scores" class="w-full py-2.5 bg-bio-card hover:bg-bio-surface text-purple-300 font-mono text-sm font-bold tracking-wider rounded-xl border border-bio-border hover:border-purple-400/50 transition" data-testid="btn-menu-high-scores">
-            🏆 HIGH SCORES
+            🏆 SCOREBOARD
           </button>
           <button id="btn-menu-how-to-play" class="w-full py-2.5 bg-bio-card hover:bg-bio-surface text-bio-muted hover:text-bio-text font-mono text-sm tracking-wider rounded-xl border border-bio-border transition" data-testid="btn-menu-how-to-play">
             📖 HOW TO PLAY
           </button>
         </div>
 
-        <div class="text-[11px] font-mono text-bio-muted/80">
-          Vite • TypeScript • PixiJS • Divinity-Inspired Soundtrack
-        </div>
       </div>
     `;
 
@@ -596,7 +643,7 @@ export class GameUI {
     const modal = document.getElementById('modal-container');
     if (!modal) return;
 
-    const towerIds: TowerTypeId[] = ['IGG', 'IGM', 'IGA', 'KILLER_T'];
+    const towerIds: TowerTypeId[] = TOWER_DOCK_ORDER;
     const activeDef = TOWER_DEFINITIONS[this.previewTowerId];
 
     modal.classList.remove('hidden');
@@ -605,13 +652,13 @@ export class GameUI {
         <div class="flex justify-between items-center mb-5 pb-3 border-b border-bio-border">
           <div>
             <h2 class="font-title text-2xl font-bold text-bio-cyan neon-glow-cyan">ANTIBODY MATRIX // TOWER PREVIEW</h2>
-            <p class="text-xs font-mono text-bio-muted uppercase tracking-wider">Inspect Damage, Recharge Interval, Range & Branch Evolutions</p>
+            <p class="text-xs font-mono text-bio-muted uppercase tracking-wider">Inspect Damage, Ammunition, Range & the 4-Tier Evolution Path</p>
           </div>
           <button id="btn-close-preview" class="text-bio-muted hover:text-bio-text font-mono text-lg">✕</button>
         </div>
 
         <!-- Tower Tabs -->
-        <div class="grid grid-cols-4 gap-2.5 mb-6">
+        <div class="grid grid-cols-5 gap-2.5 mb-6">
           ${towerIds
             .map((tId) => {
               const d = TOWER_DEFINITIONS[tId];
@@ -629,7 +676,7 @@ export class GameUI {
                     ${getTowerSvg(tId, 40)}
                   </div>
                   <span class="text-xs font-bold font-title ${isSelected ? 'text-bio-text' : 'text-slate-400'}">${d.name.split(' ')[0]} ${d.name.split(' ')[1] || ''}</span>
-                  <span class="text-[10px] font-mono text-bio-amber">⚡ ${d.cost}</span>
+                  <span class="text-[10px] font-mono text-bio-amber">⚡ ${d.cost}${d.unlockWave ? ` · 🔒 W${d.unlockWave}` : ''}</span>
                 </button>
               `;
             })
@@ -651,6 +698,7 @@ export class GameUI {
                   </span>
                 </div>
                 <p class="text-xs font-body text-bio-muted mt-1 leading-relaxed">${activeDef.description}</p>
+                <p class="text-[11px] font-mono mt-1" style="color: ${activeDef.color};">🧪 ${activeDef.ammunition} · ${DAMAGE_TYPE_LABEL[activeDef.damageType]} damage${activeDef.unlockWave ? ` · 🔒 Unlocks at wave ${activeDef.unlockWave}` : ''}</p>
               </div>
             </div>
             <div class="font-mono text-lg font-black text-bio-amber flex-shrink-0">⚡ ${activeDef.cost} ATP</div>
@@ -672,35 +720,38 @@ export class GameUI {
             </div>
           </div>
 
-          <!-- Branch Evolution Preview -->
+          <!-- Evolution Path -->
           <div class="border-t border-bio-border/60 pt-4">
-            <h4 class="font-title text-xs font-bold text-bio-amber uppercase tracking-wider mb-2.5">🧬 In-Game Tower Upgrades (Level 3)</h4>
-            <div class="grid grid-cols-2 gap-3">
-              <div class="flex items-start gap-2.5 p-3 bg-bio-surface/60 rounded-xl border border-bio-cyan/30">
-                <div class="flex-shrink-0 w-10 h-10 rounded-lg bg-slate-950 flex items-center justify-center border border-bio-cyan/40">
-                  ${getBranchUpgradeSvg(activeDef.branchA.special || activeDef.branchA.name, 34)}
-                </div>
-                <div>
-                  <div class="flex justify-between items-center text-xs font-bold font-title text-bio-cyan mb-0.5">
-                    <span>Branch A: ${activeDef.branchA.name}</span>
-                    <span class="font-mono text-[10px] text-bio-amber">⚡ ${activeDef.branchA.cost}</span>
-                  </div>
-                  <p class="text-[11px] font-body text-bio-muted">${activeDef.branchA.description}</p>
-                </div>
-              </div>
-
-              <div class="flex items-start gap-2.5 p-3 bg-bio-surface/60 rounded-xl border border-bio-magenta/30">
-                <div class="flex-shrink-0 w-10 h-10 rounded-lg bg-slate-950 flex items-center justify-center border border-bio-magenta/40">
-                  ${getBranchUpgradeSvg(activeDef.branchB.special || activeDef.branchB.name, 34)}
-                </div>
-                <div>
-                  <div class="flex justify-between items-center text-xs font-bold font-title text-bio-magenta mb-0.5">
-                    <span>Branch B: ${activeDef.branchB.name}</span>
-                    <span class="font-mono text-[10px] text-bio-amber">⚡ ${activeDef.branchB.cost}</span>
-                  </div>
-                  <p class="text-[11px] font-body text-bio-muted">${activeDef.branchB.description}</p>
-                </div>
-              </div>
+            <h4 class="font-title text-xs font-bold text-bio-amber uppercase tracking-wider mb-2.5">🧬 4-Tier Evolution Path</h4>
+            <div class="flex items-center gap-2 mb-3 text-[10px] font-mono">
+              <span class="px-2 py-1 rounded bg-bio-surface border border-bio-border text-bio-text">T1 · Deploy (⚡ ${activeDef.cost})</span>
+              <span class="text-bio-muted">→</span>
+              <span class="px-2 py-1 rounded bg-bio-surface border border-bio-cyan/40 text-bio-cyan">T2 · Reinforce (⚡ ${activeDef.tier1Upgrade.cost}) ${formatPct(activeDef.tier1Upgrade.damageMultiplier)} DMG</span>
+              <span class="text-bio-muted">→</span>
+              <span class="px-2 py-1 rounded bg-bio-surface border border-bio-amber/40 text-bio-amber">T3 · Pick 1 of 5 specializations</span>
+              <span class="text-bio-muted">→</span>
+              <span class="px-2 py-1 rounded bg-bio-surface border border-violet-400/40 text-violet-300">T4 · Apex</span>
+            </div>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+              ${activeDef.branches
+                .map((branch) => {
+                  const accent = BRANCH_ACCENTS[branch.id];
+                  return `
+                  <div class="flex items-start gap-2.5 p-3 bg-bio-surface/60 rounded-xl border ${accent.border}">
+                    <div class="flex-shrink-0 w-10 h-10 rounded-lg bg-slate-950 flex items-center justify-center border ${accent.border}">
+                      ${getBranchUpgradeSvg(branch.special || branch.name, 34)}
+                    </div>
+                    <div class="min-w-0">
+                      <div class="flex justify-between items-center gap-2 text-xs font-bold font-title ${accent.text} mb-0.5">
+                        <span class="truncate">${branch.id}: ${branch.name}</span>
+                        <span class="font-mono text-[10px] text-bio-amber flex-shrink-0">⚡ ${branch.cost}</span>
+                      </div>
+                      <p class="text-[11px] font-body text-bio-muted leading-snug">${branch.description}</p>
+                      <p class="text-[10px] font-mono text-violet-300/80 mt-1">Apex: ⚡ ${branch.apex.cost} · ${formatPct(branch.apex.damageMultiplier)} DMG</p>
+                    </div>
+                  </div>`;
+                })
+                .join('')}
             </div>
           </div>
         </div>
@@ -944,80 +995,105 @@ export class GameUI {
     const modal = document.getElementById('modal-container');
     if (!modal) return;
 
+    const enemyCards = Object.values(ENEMY_DEFINITIONS)
+      .map((enemy) => {
+        const firstWave = firstWaveFor(enemy.id);
+        const immune = enemy.immunities ?? [];
+        return `
+          <div class="flex items-start gap-3 p-3 bg-bio-card rounded-xl border border-bio-border/60">
+            <div class="flex-shrink-0 w-16 h-16 rounded-xl bg-slate-950 flex items-center justify-center border" style="border-color: ${enemy.color}66;">
+              ${getEnemySvg(enemy.id, 60)}
+            </div>
+            <div class="min-w-0 flex-grow">
+              <div class="flex items-center justify-between gap-2">
+                <div class="font-title font-bold text-bio-text">${enemy.name}</div>
+                <div class="text-[9px] font-mono text-bio-muted flex-shrink-0">${firstWave ? `FROM WAVE ${firstWave}` : 'SPLIT SPAWN'}</div>
+              </div>
+              <div class="text-[10px] text-bio-muted leading-snug mt-0.5">${enemy.description}</div>
+              <div class="flex flex-wrap gap-1 mt-1.5 text-[9px] font-mono">
+                <span class="px-1.5 py-0.5 rounded bg-bio-surface border border-bio-border text-bio-coral">HP ${enemy.baseHp}</span>
+                <span class="px-1.5 py-0.5 rounded bg-bio-surface border border-bio-border text-slate-300">ARMOR ${enemy.armor}</span>
+                <span class="px-1.5 py-0.5 rounded bg-bio-surface border border-bio-border text-slate-300">SPD ${enemy.baseSpeed}</span>
+                <span class="px-1.5 py-0.5 rounded bg-bio-surface border border-bio-border text-bio-amber">⚡ ${enemy.atpReward}</span>
+                <span class="px-1.5 py-0.5 rounded bg-bio-surface border border-bio-border text-bio-coral">CORE -${enemy.coreDamage}</span>
+                ${immune
+                  .map(
+                    (im) =>
+                      `<span class="px-1.5 py-0.5 rounded bg-red-500/15 border border-red-400/50 text-red-300 font-bold">🛡 IMMUNE: ${DAMAGE_TYPE_LABEL[im] ?? im}</span>`
+                  )
+                  .join('')}
+                ${enemy.splitsOnDeath ? `<span class="px-1.5 py-0.5 rounded bg-bio-surface border border-bio-border text-bio-magenta">SPLITS ×${enemy.splitsOnDeath.count}</span>` : ''}
+              </div>
+              ${enemy.counterTip ? `<div class="text-[10px] font-mono text-bio-emerald mt-1.5">▶ COUNTER: ${enemy.counterTip}</div>` : ''}
+            </div>
+          </div>`;
+      })
+      .join('');
+
+    const towerCards = TOWER_DOCK_ORDER.map((tId) => {
+      const d = TOWER_DEFINITIONS[tId];
+      return `
+        <div class="p-3 bg-bio-card rounded-xl border" style="border-color: ${d.color}55;">
+          <div class="flex items-start gap-2.5 mb-1.5">
+            <div class="flex-shrink-0 w-11 h-11 rounded-lg bg-slate-950 flex items-center justify-center border" style="border-color: ${d.color}88;">
+              ${getTowerSvg(tId, 40)}
+            </div>
+            <div class="min-w-0 flex-grow">
+              <div class="flex items-center justify-between gap-2 font-title font-bold text-bio-text">
+                <span class="truncate">${d.name}</span>
+                <span class="font-mono text-[11px] text-bio-amber flex-shrink-0">⚡ ${d.cost}</span>
+              </div>
+              <div class="text-[10px] font-mono" style="color: ${d.color};">${d.role} · ${DAMAGE_TYPE_LABEL[d.damageType]}${d.unlockWave ? ` · 🔒 wave ${d.unlockWave}` : ''}</div>
+              <div class="text-[10px] text-bio-muted leading-snug">${d.ammunition}</div>
+            </div>
+          </div>
+          <div class="text-[10px] font-mono text-slate-400 space-y-0.5 border-t border-bio-border/40 pt-1.5">
+            ${d.branches
+              .map((b) => `<div><span class="${BRANCH_ACCENTS[b.id].text} font-bold">${b.id}: ${b.name}</span> <span class="text-bio-muted">— ${b.description}</span></div>`)
+              .join('')}
+          </div>
+        </div>`;
+    }).join('');
+
     modal.classList.remove('hidden');
     modal.innerHTML = `
-      <div class="flex flex-col max-w-2xl w-full max-h-[90vh] overflow-y-auto p-8 bg-bio-surface/98 border border-bio-cyan/40 rounded-2xl shadow-2xl text-left">
+      <div class="flex flex-col max-w-3xl w-full max-h-[92vh] overflow-y-auto p-8 bg-bio-surface/98 border border-bio-cyan/40 rounded-2xl shadow-2xl text-left">
         <div class="flex justify-between items-center mb-4 pb-3 border-b border-bio-border">
           <div>
-            <h2 class="font-title text-2xl font-bold text-bio-cyan neon-glow-cyan">CYBER-IMMUNOLOGY // FIELD MANUAL</h2>
-            <p class="text-xs font-mono text-bio-muted uppercase tracking-wider">Tactical Guide & Cellular Mechanics</p>
+            <h2 class="font-title text-2xl font-bold text-bio-cyan neon-glow-cyan">MICROCOSM // FIELD MANUAL</h2>
+            <p class="text-xs font-mono text-bio-muted uppercase tracking-wider">How to Play · Pathogen Threat Matrix · Bio-Sentinel Roster</p>
           </div>
           <button id="btn-close-help" class="text-bio-muted hover:text-bio-text font-mono text-lg">✕</button>
         </div>
 
-        <div class="flex flex-col gap-4 font-body text-sm text-bio-text/90 mb-6 leading-relaxed">
-          <!-- Section 1: Core Mechanics -->
-          <div class="bg-bio-card/60 p-3.5 rounded-xl border border-bio-border/60">
-            <h3 class="font-title text-sm font-bold text-bio-amber mb-1.5 uppercase">⚡ Core Combat & Resource Loop</h3>
-            <p class="text-xs text-bio-muted mb-2">Defend the cellular core by deploying specialized antibodies along vascular pathways. Pathogens that reach the core leak damage directly into <strong>Organ Integrity</strong>.</p>
-            <ul class="text-xs space-y-1 list-disc list-inside text-slate-300">
-              <li><strong>ATP Currency:</strong> Earned by neutralizing pathogens, wave clear bonuses, and calling waves early.</li>
-              <li><strong>Send Early:</strong> Hit <span class="font-mono text-bio-cyan font-bold">SEND NOW</span> to skip countdown and receive <strong>+3 ATP & +25 Score</strong> per second skipped!</li>
-              <li><strong>Sell Refund:</strong> Placed antibodies can be sold at any time for <strong>70% refund</strong> of total invested ATP.</li>
-            </ul>
+        <div class="flex flex-col gap-5 font-body text-sm text-bio-text/90 mb-6 leading-relaxed">
+          <!-- 1. How to Play -->
+          <div class="bg-bio-card/60 p-4 rounded-xl border border-bio-border/60">
+            <h3 class="font-title text-sm font-bold text-bio-amber mb-2 uppercase">⚡ 1 · How to Play</h3>
+            <ol class="text-xs space-y-1.5 list-decimal list-inside text-slate-300">
+              <li><strong>Deploy sentinels</strong> on open tissue beside the vessel path (hotkeys <span class="font-mono text-bio-cyan">1–5</span>, right-click to cancel). Each costs <strong>ATP</strong>.</li>
+              <li><strong>Pathogens</strong> travel the path toward the core. Any that arrive drain <strong>Organ Integrity</strong>; at 0% the host is compromised.</li>
+              <li><strong>Earn ATP</strong> from kills and wave-clear bonuses. Press <span class="font-mono text-bio-cyan font-bold">SEND NOW</span> to skip the countdown for <strong>+3 ATP & +25 score per second</strong>.</li>
+              <li><strong>Evolve towers</strong>: T1 deploy → T2 reinforce → <strong>T3 choose 1 of 5 specializations</strong> → T4 apex. Flawless defense earns up to <strong>35% upgrade discounts</strong>.</li>
+              <li><strong>Watch immunities.</strong> From wave 6, <span class="text-red-300 font-bold">Heat-Shock Carriers</span> deflect thermal beams. The <span class="text-violet-300 font-bold">Macrophage Engulfer</span> unlocks at wave 5 to counter them — it ignores armor entirely.</li>
+              <li><strong>Sentinels age.</strong> Each has a membrane lifespan and auto-recycles for 70% of invested ATP; sell early to reposition.</li>
+            </ol>
           </div>
 
-          <!-- Section 2: Antibody Matrix Comparison -->
+          <!-- 2. Pathogen Threat Matrix -->
           <div>
-            <h3 class="font-title text-sm font-bold text-bio-cyan mb-2 uppercase">🧬 In-Game Tower Upgrades Matrix</h3>
-            <div class="grid grid-cols-2 gap-2.5 text-xs">
-              <div class="p-3 bg-bio-card rounded-lg border border-bio-cyan/30">
-                <div class="flex items-center justify-between font-title font-bold text-bio-cyan mb-1">
-                  <span>🩵 IgG Pulse Sentinel</span>
-                  <span class="font-mono text-[11px] text-bio-amber">⚡ 100</span>
-                </div>
-                <p class="text-[11px] text-bio-muted mb-1.5">Rapid kinetic bio-photons (2.85/s). Ideal vs fast <em>Rhinovirus</em> runners.</p>
-                <div class="text-[10px] font-mono text-slate-400 space-y-0.5 border-t border-bio-border/40 pt-1">
-                  <div>• <span class="text-bio-cyan font-bold">Branch A: Hyperpulse Barrage</span> (+60% fire rate, 25% crit chance)</div>
-                  <div>• <span class="text-bio-cyan font-bold">Branch B: Antibody Storm</span> (Arcs to 3 nearby pathogens)</div>
-                </div>
-              </div>
+            <h3 class="font-title text-sm font-bold text-bio-coral mb-2 uppercase">☣️ 2 · Pathogen Threat Matrix</h3>
+            <p class="text-[11px] text-bio-muted mb-2">Base stats shown; HP scales +8% per wave and with difficulty. Sprites match what you will see on the vessel.</p>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-xs">
+              ${enemyCards}
+            </div>
+          </div>
 
-              <div class="p-3 bg-bio-card rounded-lg border border-bio-magenta/30">
-                <div class="flex items-center justify-between font-title font-bold text-bio-magenta mb-1">
-                  <span>💜 IgM Cluster Cannon</span>
-                  <span class="font-mono text-[11px] text-bio-amber">⚡ 150</span>
-                </div>
-                <p class="text-[11px] text-bio-muted mb-1.5">65px AoE plasma burst. Counters dense <em>Influenza</em> swarms & split packs.</p>
-                <div class="text-[10px] font-mono text-slate-400 space-y-0.5 border-t border-bio-border/40 pt-1">
-                  <div>• <span class="text-bio-magenta font-bold">Branch A: Toxin Nebula</span> (+50% blast radius + acid DoT)</div>
-                  <div>• <span class="text-bio-magenta font-bold">Branch B: Chain Reaction</span> (Splits into 4 sub-bombs)</div>
-                </div>
-              </div>
-
-              <div class="p-3 bg-bio-card rounded-lg border border-bio-emerald/30">
-                <div class="flex items-center justify-between font-title font-bold text-bio-emerald mb-1">
-                  <span>💚 IgA Cryo-Tether</span>
-                  <span class="font-mono text-[11px] text-bio-amber">⚡ 125</span>
-                </div>
-                <p class="text-[11px] text-bio-muted mb-1.5">Continuous beam inflicting 40% slow & cellular breakdown.</p>
-                <div class="text-[10px] font-mono text-slate-400 space-y-0.5 border-t border-bio-border/40 pt-1">
-                  <div>• <span class="text-bio-emerald font-bold">Branch A: Deep Freeze</span> (70% slow + 25% brittle damage amp)</div>
-                  <div>• <span class="text-bio-emerald font-bold">Branch B: Glacial Aura</span> (360° omni-freeze perimeter)</div>
-                </div>
-              </div>
-
-              <div class="p-3 bg-bio-card rounded-lg border border-bio-amber/30">
-                <div class="flex items-center justify-between font-title font-bold text-bio-amber mb-1">
-                  <span>💛 Killer T-Cell Prism</span>
-                  <span class="font-mono text-[11px] text-bio-amber">⚡ 225</span>
-                </div>
-                <p class="text-[11px] text-bio-muted mb-1.5">Thermal laser ramping up to 5x damage on locked target. Melts heavy armor.</p>
-                <div class="text-[10px] font-mono text-slate-400 space-y-0.5 border-t border-bio-border/40 pt-1">
-                  <div>• <span class="text-bio-amber font-bold">Branch A: Perforin Lance</span> (Up to 8x ramp cap + faster spool)</div>
-                  <div>• <span class="text-bio-amber font-bold">Branch B: Cytotoxic Nova</span> (3 concurrent target locks)</div>
-                </div>
-              </div>
+          <!-- 3. Bio-Sentinel Roster -->
+          <div>
+            <h3 class="font-title text-sm font-bold text-bio-cyan mb-2 uppercase">🧬 3 · Bio-Sentinel Roster & Specializations</h3>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-xs">
+              ${towerCards}
             </div>
           </div>
         </div>
@@ -1489,18 +1565,12 @@ export class GameUI {
           this.engine.dispatch({ type: 'RESUME_GAME' });
           document.getElementById('modal-container')?.classList.add('hidden');
         }
-      } else if (e.key === '1') {
-        this.renderer.activePlacementTower = 'IGG';
-        this.renderTowerDock();
-      } else if (e.key === '2') {
-        this.renderer.activePlacementTower = 'IGM';
-        this.renderTowerDock();
-      } else if (e.key === '3') {
-        this.renderer.activePlacementTower = 'IGA';
-        this.renderTowerDock();
-      } else if (e.key === '4') {
-        this.renderer.activePlacementTower = 'KILLER_T';
-        this.renderTowerDock();
+      } else if (/^[1-5]$/.test(e.key)) {
+        const typeId = TOWER_DOCK_ORDER[Number(e.key) - 1];
+        if (typeId && this.engine.isTowerUnlocked(typeId)) {
+          this.renderer.activePlacementTower = typeId;
+          this.renderTowerDock();
+        }
       } else if (e.key === 'Escape') {
         this.renderer.activePlacementTower = null;
         this.engine.dispatch({ type: 'SELECT_TOWER', towerId: null });

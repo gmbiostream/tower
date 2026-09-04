@@ -1,4 +1,4 @@
-# Cyber-Immunology: Neon Microcosm
+# Microcosm
 
 ## Product Plan for Approval
 
@@ -6,7 +6,7 @@ Status: Approved
 Target: Playable browser tower defence game built during a 1.5-day hackathon  
 Primary objective: Maximize demonstrated feature completion without sacrificing a reliable core game loop
 
-Implementation backlogs: [Feature Decomposition](FEATURES.md), [User Stories](USER_STORIES.md), and [Incremental Tasks](TASKS.md)
+Implementation backlogs: [Feature Decomposition](FEATURES.md), [User Stories](USER_STORIES.md), [Incremental Tasks](TASKS.md), and [Architecture Guide](ARCHITECTURE.md)
 
 ## 1. Product Vision
 

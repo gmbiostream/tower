@@ -8,12 +8,16 @@ export type GamePhase =
   | 'VICTORY'
   | 'DEFEAT';
 
-export type DifficultyId = 'RESIDENT' | 'ACUTE' | 'CRITICAL' | 'EXTREME' | 'EASY' | 'MEDIUM' | 'HARD';
+export type DifficultyId = 'RESIDENT' | 'ACUTE' | 'CRITICAL' | 'EXTREME';
 export type MapId = 'VASCULAR_RUN' | 'LYMPH_SPIRAL' | 'NEURAL_FORK' | 'PULMONARY_CONVERGENCE' | string;
 export type TargetMode = 'FIRST' | 'STRONGEST';
 
-export type TowerTypeId = 'IGG' | 'IGM' | 'IGA' | 'KILLER_T';
-export type EnemyTypeId = 'RHINOVIRUS' | 'INFLUENZA' | 'CORONA_TITAN' | 'RETRO_MUTANT';
+export type TowerTypeId = 'IGG' | 'IGM' | 'IGA' | 'KILLER_T' | 'MACROPHAGE';
+/** Every tower exposes exactly five Tier-3 specialization branches, A through E. */
+export type UpgradeBranchId = 'A' | 'B' | 'C' | 'D' | 'E';
+export type EnemyTypeId = 'RHINOVIRUS' | 'INFLUENZA' | 'CORONA_TITAN' | 'HEATSHOCK_CARRIER' | 'RETRO_MUTANT';
+/** Damage channel a tower deals; enemies can be immune to specific channels. */
+export type DamageType = 'KINETIC' | 'PLASMA' | 'CRYO' | 'THERMAL' | 'PHAGOCYTIC';
 
 export interface GridCoord {
   col: number;
@@ -87,6 +91,10 @@ export interface EnemyDefinition {
   coreDamage: number;
   color: string;
   size: number;
+  /** Damage channels this pathogen shrugs off entirely. */
+  immunities?: DamageType[];
+  /** Short tactical hint surfaced in the field manual. */
+  counterTip?: string;
   splitsOnDeath?: {
     childTypeId: EnemyTypeId;
     count: number;
@@ -115,6 +123,7 @@ export interface EnemyInstance {
   isDead: boolean;
   isLeaked: boolean;
   statusEffects: StatusEffect[];
+  immunities: DamageType[];
   splitsOnDeath?: {
     childTypeId: EnemyTypeId;
     count: number;
@@ -122,6 +131,7 @@ export interface EnemyInstance {
 }
 
 export interface UpgradeBranchDefinition {
+  id: UpgradeBranchId;
   name: string;
   description: string;
   cost: number;
@@ -129,6 +139,11 @@ export interface UpgradeBranchDefinition {
   fireRateMultiplier?: number;
   rangeMultiplier?: number;
   special?: string;
+  /** Tier 4 "Apex" mastery available after committing to this branch. */
+  apex: {
+    cost: number;
+    damageMultiplier: number;
+  };
 }
 
 export interface TowerDefinition {
@@ -142,22 +157,19 @@ export interface TowerDefinition {
   fireIntervalMs: number;
   color: string;
   targetMode: TargetMode;
+  damageType: DamageType;
+  /** Plain-language description of the ammunition this tower fires. */
+  ammunition: string;
+  /** 1-based wave at which this tower becomes purchasable (undefined = always). */
+  unlockWave?: number;
   tier1Upgrade: {
     cost: number;
     damageMultiplier: number;
     rangeMultiplier: number;
     fireRateMultiplier: number;
   };
-  branchA: UpgradeBranchDefinition;
-  branchB: UpgradeBranchDefinition;
-  tier3UpgradeA: {
-    cost: number;
-    damageMultiplier: number;
-  };
-  tier3UpgradeB: {
-    cost: number;
-    damageMultiplier: number;
-  };
+  /** Exactly five Tier-3 specializations (ids A..E). */
+  branches: UpgradeBranchDefinition[];
 }
 
 export interface TowerInstance {
@@ -172,14 +184,18 @@ export interface TowerInstance {
   fireIntervalMs: number;
   cooldownMs: number;
   targetMode: TargetMode;
+  damageType: DamageType;
   level: number;
-  selectedBranch?: 'A' | 'B';
+  selectedBranch?: UpgradeBranchId;
   totalInvestedAtp: number;
   color: string;
   targetId: string | null;
   beamLockDurationMs?: number;
   special?: string;
   beamLocks?: { targetId: string; lockDurationMs: number }[];
+  ageMs: number;
+  lifespanMs: number;
+  recycleValue: number;
 }
 
 export interface ProjectileInstance {
@@ -193,8 +209,9 @@ export interface ProjectileInstance {
   splashRadius: number;
   color: string;
   isDead: boolean;
-  specialType?: 'PULSE' | 'CLUSTER' | 'CHAIN' | 'PLASMA';
+  specialType?: 'PULSE' | 'CLUSTER' | 'CHAIN' | 'PLASMA' | 'ENGULF';
   special?: string;
+  damageType?: DamageType;
   isCrit?: boolean;
 }
 
@@ -227,8 +244,9 @@ export type GameCommand =
   | { type: 'SET_SPEED'; multiplier: number }
   | { type: 'START_WAVE_EARLY' }
   | { type: 'PLACE_TOWER'; towerTypeId: TowerTypeId; col: number; row: number }
-  | { type: 'UPGRADE_TOWER'; towerId: string; branch?: 'A' | 'B' }
+  | { type: 'UPGRADE_TOWER'; towerId: string; branch?: UpgradeBranchId }
   | { type: 'SELL_TOWER'; towerId: string }
+  | { type: 'RECYCLE_TOWER'; towerId: string }
   | { type: 'SELECT_TOWER'; towerId: string | null }
   | { type: 'SET_TARGET_MODE'; towerId: string; mode: TargetMode }
   | { type: 'RESTART_GAME' }
@@ -245,13 +263,14 @@ export type DomainEvent =
   | { type: 'WAVE_STARTED'; waveIndex: number; earlyBonusAtp: number }
   | { type: 'WAVE_CLEARED'; waveIndex: number; bonusAtp: number }
   | { type: 'ENEMY_SPAWNED'; enemyId: string; enemyTypeId: EnemyTypeId; position: WorldCoord }
-  | { type: 'ENEMY_DAMAGED'; enemyId: string; amount: number; currentHp: number; maxHp: number; isCrit?: boolean }
+  | { type: 'ENEMY_DAMAGED'; enemyId: string; amount: number; currentHp: number; maxHp: number; isCrit?: boolean; immune?: boolean }
   | { type: 'ENEMY_DEFEATED'; enemyId: string; enemyTypeId: EnemyTypeId; position: WorldCoord; atpReward: number; scoreReward: number }
   | { type: 'ENEMY_LEAKED'; enemyId: string; enemyTypeId: EnemyTypeId; damageToCore: number }
   | { type: 'CORE_DAMAGED'; damage: number; currentIntegrity: number }
   | { type: 'TOWER_PLACED'; towerId: string; towerTypeId: TowerTypeId; col: number; row: number; cost: number }
-  | { type: 'TOWER_UPGRADED'; towerId: string; newLevel: number; branch?: 'A' | 'B'; cost: number }
+  | { type: 'TOWER_UPGRADED'; towerId: string; newLevel: number; branch?: UpgradeBranchId; cost: number }
   | { type: 'TOWER_SOLD'; towerId: string; refund: number }
+  | { type: 'TOWER_UNLOCKED'; towerTypeId: TowerTypeId; waveIndex: number }
   | { type: 'TOWER_FIRED'; towerId: string; targetId: string; projectileType: string }
   | { type: 'ATP_CHANGED'; currentAtp: number; delta: number; reason: string }
   | { type: 'SCORE_CHANGED'; currentScore: number; delta: number; reason: string }

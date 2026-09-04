@@ -3,6 +3,8 @@ import {
   DifficultyId,
   MapId,
   EnemyTypeId,
+  TowerTypeId,
+  DamageType,
   BuildabilityCheckResult,
   EnemyInstance,
   TowerInstance,
@@ -19,9 +21,10 @@ import { EventBus } from './events';
 import { MapGrid } from './map';
 import { ALL_MAPS, VASCULAR_RUN_MAP } from '@/data/maps';
 import { DIFFICULTY_MODIFIERS } from '@/data/difficulties';
-import { TOWER_DEFINITIONS } from '@/data/towers';
+import { TOWER_DEFINITIONS, getBranch } from '@/data/towers';
 import { ENEMY_DEFINITIONS } from '@/data/enemies';
 import { GAME_WAVES } from '@/data/waves';
+import { SoundSynth } from '@/audio/synth';
 
 export class GameEngine {
   public phase: GamePhase = 'MAIN_MENU';
@@ -48,19 +51,24 @@ export class GameEngine {
 
   public selectedTowerId: string | null = null;
   public stats: SessionStats;
+  /** Towers currently purchasable; wave-gated towers join this set as the game progresses. */
+  public unlockedTowers: Set<TowerTypeId> = new Set();
 
   private nextEntityId = 1;
   private currentMapId: MapId = 'VASCULAR_RUN';
   private currentDifficultyId: DifficultyId = 'ACUTE';
   private currentSeed = 1337;
+  private soundSynth?: SoundSynth;
 
   constructor(
     mapId: MapId = 'VASCULAR_RUN',
     difficultyId: DifficultyId = 'ACUTE',
     seed: number = 1337,
-    eventBus?: EventBus
+    eventBus?: EventBus,
+    soundSynth?: SoundSynth
   ) {
     this.events = eventBus || new EventBus();
+    this.soundSynth = soundSynth;
     this.currentMapId = mapId;
     this.currentDifficultyId = difficultyId;
     this.currentSeed = seed;
@@ -74,6 +82,7 @@ export class GameEngine {
     this.atp = this.difficulty.startingAtp;
     this.integrity = this.difficulty.startingIntegrity;
     this.totalWaves = GAME_WAVES.length;
+    this.resetUnlocks();
 
     this.stats = {
       wavesCompleted: 0,
@@ -94,6 +103,30 @@ export class GameEngine {
       set.add(`${tower.col},${tower.row}`);
     }
     return set;
+  }
+
+  public isTowerUnlocked(towerTypeId: TowerTypeId): boolean {
+    return this.unlockedTowers.has(towerTypeId);
+  }
+
+  private resetUnlocks(): void {
+    this.unlockedTowers = new Set(
+      (Object.keys(TOWER_DEFINITIONS) as TowerTypeId[]).filter((id) => {
+        const unlockWave = TOWER_DEFINITIONS[id].unlockWave;
+        return unlockWave === undefined || unlockWave <= 1;
+      })
+    );
+  }
+
+  /** Unlocks any wave-gated towers whose unlock wave has been reached (1-based). */
+  private processUnlocks(waveNumber: number): void {
+    for (const id of Object.keys(TOWER_DEFINITIONS) as TowerTypeId[]) {
+      const def = TOWER_DEFINITIONS[id];
+      if (def.unlockWave !== undefined && def.unlockWave <= waveNumber && !this.unlockedTowers.has(id)) {
+        this.unlockedTowers.add(id);
+        this.events.emit({ type: 'TOWER_UNLOCKED', towerTypeId: id, waveIndex: waveNumber });
+      }
+    }
   }
 
   /**
@@ -154,6 +187,12 @@ export class GameEngine {
         return { ok: true };
       }
 
+      case 'RECYCLE_TOWER': {
+        // Recycling is an explicit tactical sell action; it is intentionally
+        // separate from SELL_TOWER so clients can expose a reclaim affordance.
+        return this.dispatch({ type: 'SELL_TOWER', towerId: command.towerId });
+      }
+
       case 'START_GAME': {
         this.currentMapId = command.mapId;
         this.currentDifficultyId = command.difficultyId;
@@ -175,6 +214,7 @@ export class GameEngine {
         this.projectiles = [];
         this.spawnQueue = [];
         this.selectedTowerId = null;
+        this.resetUnlocks();
 
         const currentWave = GAME_WAVES[0];
         this.waveCountdownMs = currentWave ? currentWave.countdownDurationMs : 10000;
@@ -256,6 +296,7 @@ export class GameEngine {
         if (earlyAtpBonus > 0) {
           this.atp += earlyAtpBonus;
           this.stats.totalAtpEarned += earlyAtpBonus;
+          this.soundSynth?.playAtpGain();
           this.events.emit({
             type: 'ATP_CHANGED',
             currentAtp: this.atp,
@@ -288,6 +329,9 @@ export class GameEngine {
         if (!def) {
           return { ok: false, reason: 'Unknown tower type' };
         }
+        if (!this.unlockedTowers.has(command.towerTypeId)) {
+          return { ok: false, reason: 'TOWER_LOCKED' };
+        }
 
         const check = this.checkPlacement(command.col, command.row, def.cost);
         if (!check.valid) {
@@ -297,6 +341,7 @@ export class GameEngine {
         // Deduct ATP
         this.atp -= def.cost;
         this.stats.totalAtpSpent += def.cost;
+        this.soundSynth?.playAtpSpend();
         this.events.emit({
           type: 'ATP_CHANGED',
           currentAtp: this.atp,
@@ -319,11 +364,22 @@ export class GameEngine {
           fireIntervalMs: def.fireIntervalMs,
           cooldownMs: 0,
           targetMode: def.targetMode,
+          damageType: def.damageType,
           level: 1,
           totalInvestedAtp: def.cost,
           color: def.color,
           targetId: null,
           beamLockDurationMs: 0,
+          ageMs: 0,
+          // Tactical cells can be recycled before senescence. The longer-lived
+          // heavy cells cost more but remain on the membrane longer.
+          lifespanMs:
+            command.towerTypeId === 'KILLER_T' || command.towerTypeId === 'MACROPHAGE'
+              ? 240000
+              : command.towerTypeId === 'IGM'
+                ? 210000
+                : 180000,
+          recycleValue: Math.floor(def.cost * 0.7),
         };
 
         this.towers.set(towerId, tower);
@@ -359,6 +415,7 @@ export class GameEngine {
 
           this.atp -= cost;
           this.stats.totalAtpSpent += cost;
+          this.soundSynth?.playAtpSpend();
           tower.totalInvestedAtp += cost;
           tower.level = 2;
           tower.damage = Math.round(tower.damage * def.tier1Upgrade.damageMultiplier * perf.efficiencyBonus);
@@ -383,12 +440,13 @@ export class GameEngine {
           return { ok: true };
         }
 
-        // Level 2 -> 3 (Branch selection)
+        // Level 2 -> 3 (Choose one of five specialization branches)
         if (tower.level === 2) {
           if (!command.branch) {
-            return { ok: false, reason: 'Must specify branch A or B' };
+            return { ok: false, reason: 'Must specify a specialization branch (A-E)' };
           }
-          const branchDef = command.branch === 'A' ? def.branchA : def.branchB;
+          const branchDef = getBranch(def, command.branch);
+          if (!branchDef) return { ok: false, reason: 'Unknown upgrade branch' };
           const baseCost = branchDef.cost;
           const cost = this.getUpgradeCost(baseCost);
           if (this.atp < cost) {
@@ -397,9 +455,10 @@ export class GameEngine {
 
           this.atp -= cost;
           this.stats.totalAtpSpent += cost;
+          this.soundSynth?.playAtpSpend();
           tower.totalInvestedAtp += cost;
           tower.level = 3;
-          tower.selectedBranch = command.branch;
+          tower.selectedBranch = branchDef.id;
           tower.special = branchDef.special;
 
           if (branchDef.damageMultiplier) {
@@ -409,9 +468,7 @@ export class GameEngine {
             tower.range = Math.round(tower.range * branchDef.rangeMultiplier);
           }
           if (branchDef.fireRateMultiplier) {
-            tower.fireIntervalMs = Math.round(
-              tower.fireIntervalMs / branchDef.fireRateMultiplier
-            );
+            tower.fireIntervalMs = Math.round(tower.fireIntervalMs / branchDef.fireRateMultiplier);
           }
 
           this.events.emit({
@@ -424,18 +481,18 @@ export class GameEngine {
             type: 'TOWER_UPGRADED',
             towerId: tower.id,
             newLevel: tower.level,
-            branch: command.branch,
+            branch: branchDef.id,
             cost,
           });
 
           return { ok: true };
         }
 
-        // Level 3 -> 4 (Tier 3 Master Upgrade)
+        // Level 3 -> 4 (Apex mastery of the chosen branch)
         if (tower.level === 3) {
-          const tier3 =
-            tower.selectedBranch === 'A' ? def.tier3UpgradeA : def.tier3UpgradeB;
-          const baseCost = tier3.cost;
+          const branchDef = tower.selectedBranch ? getBranch(def, tower.selectedBranch) : undefined;
+          const apex = branchDef?.apex ?? def.branches[0]!.apex;
+          const baseCost = apex.cost;
           const cost = this.getUpgradeCost(baseCost);
           if (this.atp < cost) {
             return { ok: false, reason: 'INSUFFICIENT_ATP' };
@@ -443,9 +500,10 @@ export class GameEngine {
 
           this.atp -= cost;
           this.stats.totalAtpSpent += cost;
+          this.soundSynth?.playAtpSpend();
           tower.totalInvestedAtp += cost;
           tower.level = 4;
-          tower.damage = Math.round(tower.damage * tier3.damageMultiplier * perf.efficiencyBonus);
+          tower.damage = Math.round(tower.damage * apex.damageMultiplier * perf.efficiencyBonus);
 
           this.events.emit({
             type: 'ATP_CHANGED',
@@ -480,6 +538,7 @@ export class GameEngine {
         }
 
         this.atp += refund;
+        this.soundSynth?.playAtpGain();
         this.events.emit({
           type: 'ATP_CHANGED',
           currentAtp: this.atp,
@@ -621,6 +680,7 @@ export class GameEngine {
         this.atp += bonus;
         this.stats.totalAtpEarned += bonus;
         this.stats.wavesCompleted++;
+        this.soundSynth?.playAtpGain();
 
         const waveScoreBonus = (this.waveIndex + 1) * 200;
         this.score += waveScoreBonus;
@@ -652,6 +712,7 @@ export class GameEngine {
           this.waveState = 'PREPARING';
           const nextWave = GAME_WAVES[this.waveIndex]!;
           this.waveCountdownMs = nextWave.countdownDurationMs;
+          this.processUnlocks(this.waveIndex + 1);
           this.events.emit({
             type: 'WAVE_PREPARED',
             waveIndex: this.waveIndex + 1,
@@ -668,7 +729,7 @@ export class GameEngine {
     const enemyId = `enemy_${this.nextEntityId++}`;
     // Progressive per-wave scaling: enemies get tougher and faster as waves advance.
     // waveIndex is 0 for wave 1, so both factors are exactly 1.0 there (no change to wave 1 behavior).
-    const waveScaleHp = 1 + this.waveIndex * 0.06; // +6% HP per wave beyond the first
+    const waveScaleHp = 1 + this.waveIndex * 0.08; // +8% HP per wave beyond the first
     const waveScaleSpeed = 1 + this.waveIndex * 0.015; // +1.5% speed per wave beyond the first
     const hp = Math.round(def.baseHp * this.difficulty.enemyHealthMultiplier * waveScaleHp);
     const speed = def.baseSpeed * this.difficulty.enemySpeedMultiplier * waveScaleSpeed;
@@ -685,7 +746,12 @@ export class GameEngine {
       baseSpeed: speed,
       effectiveSpeed: speed,
       armor: def.armor,
-      atpReward: Math.round(def.atpReward * this.difficulty.atpIncomeMultiplier),
+      // Bounties rise with membrane density and wave pressure, keeping later
+      // waves economically viable without making early farming dominant.
+      atpReward: Math.max(
+        1,
+        Math.round(def.atpReward * this.difficulty.atpIncomeMultiplier * (1 + this.waveIndex * 0.035))
+      ),
       scoreReward: def.scoreReward,
       coreDamage: def.coreDamage,
       color: def.color,
@@ -698,6 +764,7 @@ export class GameEngine {
       isDead: false,
       isLeaked: false,
       statusEffects: [],
+      immunities: def.immunities ? [...def.immunities] : [],
       splitsOnDeath: def.splitsOnDeath,
     };
 
@@ -782,6 +849,11 @@ export class GameEngine {
 
   private updateTowers(dtMs: number): void {
     for (const tower of this.towers.values()) {
+      tower.ageMs += dtMs;
+      if (tower.ageMs >= tower.lifespanMs) {
+        this.dispatch({ type: 'RECYCLE_TOWER', towerId: tower.id });
+        continue;
+      }
       tower.cooldownMs = Math.max(0, tower.cooldownMs - dtMs);
 
       if (tower.typeId === 'KILLER_T') {
@@ -817,7 +889,8 @@ export class GameEngine {
               if (!target || target.isDead || target.isLeaked) continue;
               const lockSeconds = Math.min(maxRampSeconds, lock.lockDurationMs / 1000);
               const rampMult = 1 + lockSeconds * rampPerSecond;
-              this.applyDamageToEnemy(target, Math.round(tower.damage * rampMult), tower.id);
+              this.applyDamageToEnemy(target, Math.round(tower.damage * rampMult), tower.id, false, 'THERMAL');
+              this.applyBeamSideEffects(tower, target);
               this.events.emit({
                 type: 'TOWER_FIRED',
                 towerId: tower.id,
@@ -834,7 +907,13 @@ export class GameEngine {
         let target: EnemyInstance | null = null;
         if (tower.targetId) {
           const locked = this.enemies.get(tower.targetId);
-          if (locked && !locked.isDead && !locked.isLeaked && this.isEnemyInRange(tower, locked)) {
+          if (
+            locked &&
+            !locked.isDead &&
+            !locked.isLeaked &&
+            this.isEnemyInRange(tower, locked) &&
+            !locked.immunities.includes('THERMAL')
+          ) {
             target = locked;
           }
         }
@@ -857,7 +936,8 @@ export class GameEngine {
             const rampMult = 1 + lockSeconds * rampPerSecond;
             const totalDamage = Math.round(tower.damage * rampMult);
 
-            this.applyDamageToEnemy(target, totalDamage, tower.id);
+            this.applyDamageToEnemy(target, totalDamage, tower.id, false, 'THERMAL');
+            this.applyBeamSideEffects(tower, target);
             this.events.emit({
               type: 'TOWER_FIRED',
               towerId: tower.id,
@@ -871,7 +951,8 @@ export class GameEngine {
         }
       } else if (tower.typeId === 'IGA') {
         // IgA Cryo-Tether
-        const slowMagnitude = tower.special === 'SLOW_70_BRITTLE_25' ? 0.7 : 0.4;
+        const slowMagnitude =
+          tower.special === 'SLOW_70_BRITTLE_25' ? 0.7 : tower.special === 'CRYO_CONTROL' ? 0.55 : 0.4;
 
         if (tower.special === 'OMNI_AURA_SLOW') {
           // Glacial Aura: pulse damages and slows ALL enemies in range
@@ -885,9 +966,10 @@ export class GameEngine {
               if (this.isEnemyInRange(tower, enemy)) victims.push(enemy);
             }
             for (const enemy of victims) {
-              this.applyDamageToEnemy(enemy, tower.damage, tower.id);
+              this.applyDamageToEnemy(enemy, tower.damage, tower.id, false, 'CRYO');
               if (!enemy.isDead) {
                 this.refreshStatusEffect(enemy, `slow_${tower.id}`, 'SLOW', slowMagnitude, 800, tower.id);
+                this.applyBeamSideEffects(tower, enemy);
               }
             }
             this.events.emit({
@@ -905,7 +987,7 @@ export class GameEngine {
           tower.targetId = target.id;
           if (tower.cooldownMs <= 0) {
             tower.cooldownMs = tower.fireIntervalMs;
-            this.applyDamageToEnemy(target, tower.damage, tower.id);
+            this.applyDamageToEnemy(target, tower.damage, tower.id, false, 'CRYO');
 
             if (!target.isDead) {
               // Apply slow (refresh existing effect from this tower)
@@ -915,6 +997,7 @@ export class GameEngine {
                 // Deep Freeze: brittle targets take +25% damage from all sources
                 this.refreshStatusEffect(target, `brittle_${tower.id}`, 'BRITTLE', 0.25, 800, tower.id);
               }
+              this.applyBeamSideEffects(tower, target);
             }
 
             this.events.emit({
@@ -928,7 +1011,7 @@ export class GameEngine {
           tower.targetId = null;
         }
       } else {
-        // Projectile Towers (IgG, IgM)
+        // Projectile Towers (IgG, IgM, Macrophage)
         const target = this.findTowerTarget(tower);
         if (target && tower.cooldownMs <= 0) {
           tower.cooldownMs = tower.fireIntervalMs;
@@ -936,6 +1019,7 @@ export class GameEngine {
 
           const projId = `proj_${this.nextEntityId++}`;
           const isIgM = tower.typeId === 'IGM';
+          const isMacrophage = tower.typeId === 'MACROPHAGE';
 
           // CRIT_CHANCE_25: 25% chance to deal double damage (seeded rng)
           let damage = tower.damage;
@@ -945,25 +1029,35 @@ export class GameEngine {
             damage *= 2;
           }
 
-          // ACID_POOL_DOT: +50% blast radius
-          let splashRadius = isIgM ? 65 : 0;
-          if (tower.special === 'ACID_POOL_DOT') {
+          let splashRadius = isIgM
+            ? 65
+            : tower.special === 'LYSOSOME_SPLASH'
+              ? 55
+              : tower.special === 'KINETIC_SWARM'
+                ? 28
+                : tower.special === 'CORROSIVE_ACID'
+                  ? 42
+                  : 0;
+          // Acid paths widen the blast by 50%
+          if (tower.special === 'ACID_POOL_DOT' || tower.special === 'CORROSIVE_ACID') {
             splashRadius = Math.round(splashRadius * 1.5);
           }
 
+          const specialType = isIgM ? 'CLUSTER' : isMacrophage ? 'ENGULF' : 'PULSE';
           this.projectiles.push({
             id: projId,
             sourceTowerId: tower.id,
             targetId: target.id,
             targetPosition: { ...target.position },
             currentPosition: { ...tower.position },
-            speed: isIgM ? 280 : 550,
+            speed: isIgM ? 280 : isMacrophage ? 210 : 550,
             damage,
             splashRadius,
             color: tower.color,
             isDead: false,
-            specialType: isIgM ? 'CLUSTER' : 'PULSE',
+            specialType,
             special: tower.special,
+            damageType: tower.damageType,
             isCrit,
           });
 
@@ -971,10 +1065,20 @@ export class GameEngine {
             type: 'TOWER_FIRED',
             towerId: tower.id,
             targetId: target.id,
-            projectileType: isIgM ? 'CLUSTER' : 'PULSE',
+            projectileType: specialType,
           });
+        } else if (!target) {
+          tower.targetId = null;
         }
       }
+    }
+  }
+
+  /** Branch side-effects shared by beam/tether towers (Killer T, IgA). */
+  private applyBeamSideEffects(tower: TowerInstance, target: EnemyInstance): void {
+    if (target.isDead || target.isLeaked) return;
+    if (tower.special === 'CORROSIVE_ACID') {
+      this.refreshStatusEffect(target, `dot_${tower.id}`, 'DOT', tower.damage * 0.3, 2500, tower.id);
     }
   }
 
@@ -991,6 +1095,8 @@ export class GameEngine {
     for (const enemy of this.enemies.values()) {
       if (enemy.isDead || enemy.isLeaked) continue;
       if (excludeIds && excludeIds.has(enemy.id)) continue;
+      // Never waste ammunition on a pathogen immune to this tower's damage channel.
+      if (enemy.immunities.includes(tower.damageType)) continue;
 
       const dx = enemy.position.x - tower.position.x;
       const dy = enemy.position.y - tower.position.y;
@@ -1034,19 +1140,8 @@ export class GameEngine {
           // during damage handling (e.g. death splits) are not hit
           const victims = this.enemiesWithinRadius(proj.targetPosition, proj.splashRadius);
           for (const enemy of victims) {
-            this.applyDamageToEnemy(enemy, proj.damage, proj.sourceTowerId);
-
-            // ACID_POOL_DOT: lingering acid deals 20% of impact damage/sec for 3s
-            if (proj.special === 'ACID_POOL_DOT' && !enemy.isDead && !enemy.isLeaked) {
-              this.refreshStatusEffect(
-                enemy,
-                `dot_${proj.sourceTowerId}`,
-                'DOT',
-                proj.damage * 0.2,
-                3000,
-                proj.sourceTowerId
-              );
-            }
+            this.applyDamageToEnemy(enemy, proj.damage, proj.sourceTowerId, false, proj.damageType);
+            this.applyImpactEffects(proj, enemy);
           }
 
           // CLUSTER_FRAGMENTS_4: 4 sub-explosions around the impact point
@@ -1062,14 +1157,15 @@ export class GameEngine {
               };
               const fragVictims = this.enemiesWithinRadius(fragCenter, fragRadius);
               for (const enemy of fragVictims) {
-                this.applyDamageToEnemy(enemy, fragDamage, proj.sourceTowerId);
+                this.applyDamageToEnemy(enemy, fragDamage, proj.sourceTowerId, false, proj.damageType);
               }
             }
           }
         } else if (proj.targetId) {
           const target = this.enemies.get(proj.targetId);
           if (target && !target.isDead && !target.isLeaked) {
-            this.applyDamageToEnemy(target, proj.damage, proj.sourceTowerId, proj.isCrit);
+            this.applyDamageToEnemy(target, proj.damage, proj.sourceTowerId, proj.isCrit, proj.damageType);
+            this.applyImpactEffects(proj, target);
 
             // CHAIN_LIGHTNING_3: arc to up to 3 nearby enemies with 70% falloff per jump
             if (proj.special === 'CHAIN_LIGHTNING_3') {
@@ -1085,7 +1181,13 @@ export class GameEngine {
               let chainDamage = proj.damage;
               for (const enemy of candidates) {
                 chainDamage *= 0.7;
-                this.applyDamageToEnemy(enemy, Math.max(1, Math.round(chainDamage)), proj.sourceTowerId);
+                this.applyDamageToEnemy(
+                  enemy,
+                  Math.max(1, Math.round(chainDamage)),
+                  proj.sourceTowerId,
+                  false,
+                  proj.damageType
+                );
               }
             }
           }
@@ -1098,15 +1200,47 @@ export class GameEngine {
     }
   }
 
+  /** Status effects a projectile leaves on a surviving victim, driven by the source tower's branch. */
+  private applyImpactEffects(proj: ProjectileInstance, enemy: EnemyInstance): void {
+    if (enemy.isDead || enemy.isLeaked) return;
+    const src = proj.sourceTowerId;
+    // Acid paths leave a lingering membrane-corroding field.
+    if (proj.special === 'ACID_POOL_DOT' || proj.special === 'CORROSIVE_ACID') {
+      this.refreshStatusEffect(enemy, `dot_${src}`, 'DOT', proj.damage * 0.2, 3000, src);
+    }
+    // Cryo-plasma / cryo-control on projectile towers chills the victim.
+    if (proj.special === 'CRYO_CONTROL') {
+      this.refreshStatusEffect(enemy, `slow_${src}`, 'SLOW', 0.3, 1000, src);
+    }
+    // Macrophage opsonization marks the target for amplified damage.
+    if (proj.special === 'OPSONIZE_BRITTLE_30') {
+      this.refreshStatusEffect(enemy, `brittle_${src}`, 'BRITTLE', 0.3, 1200, src);
+    }
+  }
+
   public applyDamageToEnemy(
     enemy: EnemyInstance,
     rawDamage: number,
     _sourceTowerId?: string,
-    isCrit = false
+    isCrit = false,
+    damageType?: DamageType
   ): void {
     if (enemy.isDead || enemy.isLeaked) return;
 
-    // BRITTLE (Deep Freeze): amplified damage from all sources
+    // Immune pathogens deflect the entire hit.
+    if (damageType && enemy.immunities.includes(damageType)) {
+      this.events.emit({
+        type: 'ENEMY_DAMAGED',
+        enemyId: enemy.id,
+        amount: 0,
+        currentHp: enemy.hp,
+        maxHp: enemy.maxHp,
+        immune: true,
+      });
+      return;
+    }
+
+    // BRITTLE (Deep Freeze / Opsonin): amplified damage from all sources
     let amp = 0;
     for (const effect of enemy.statusEffects) {
       if (effect.type === 'BRITTLE') {
@@ -1114,8 +1248,15 @@ export class GameEngine {
       }
     }
 
-    // Armor flat reduction (minimum 1 dmg)
-    const effectiveDamage = Math.max(1, rawDamage * (1 + amp) - enemy.armor);
+    const source = _sourceTowerId ? this.towers.get(_sourceTowerId) : undefined;
+    // Phagocytic engulfment digests armor entirely; thermal piercing bypasses most of it.
+    const armor =
+      damageType === 'PHAGOCYTIC'
+        ? 0
+        : source?.special === 'THERMAL_PIERCING'
+          ? Math.floor(enemy.armor * 0.35)
+          : enemy.armor;
+    const effectiveDamage = Math.max(1, rawDamage * (1 + amp) - armor);
     enemy.hp = Math.max(0, enemy.hp - effectiveDamage);
 
     this.events.emit({
@@ -1129,6 +1270,17 @@ export class GameEngine {
 
     if (enemy.hp <= 0) {
       this.handleEnemyDeath(enemy);
+      if (source?.special === 'PHAGOCYTIC_ENGULFMENT') {
+        const bonus = Math.max(1, Math.round(enemy.atpReward * 0.25));
+        this.atp += bonus;
+        this.stats.totalAtpEarned += bonus;
+        this.events.emit({
+          type: 'ATP_CHANGED',
+          currentAtp: this.atp,
+          delta: bonus,
+          reason: 'PHAGOCYTIC_BOUNTY',
+        });
+      }
     }
   }
 
@@ -1177,6 +1329,7 @@ export class GameEngine {
     this.stats.enemiesDefeated++;
     this.stats.totalAtpEarned += enemy.atpReward;
     this.stats.score = this.score;
+    this.soundSynth?.playAtpGain();
 
     this.events.emit({
       type: 'ATP_CHANGED',

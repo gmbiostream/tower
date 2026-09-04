@@ -8,9 +8,9 @@ async function bootstrap() {
   const appRoot = document.querySelector<HTMLDivElement>('#app');
   if (!appRoot) return;
 
-  const engine = new GameEngine('VASCULAR_RUN', 'ACUTE');
-  const renderer = new GameRenderer(engine);
   const synth = new SoundSynth();
+  const engine = new GameEngine('VASCULAR_RUN', 'ACUTE', 1337, undefined, synth);
+  const renderer = new GameRenderer(engine);
 
   const ui = new GameUI(engine, renderer, synth, appRoot);
   ui.render();
@@ -29,14 +29,17 @@ async function bootstrap() {
     ui,
   };
 
-  // Automatically unlock audio and start soundtrack on first user gesture (click/key/touch)
+  // Start immediately where autoplay is allowed, then retry the audio element after
+  // the first user gesture in browsers that block unprompted playback.
   const unlockAudio = () => {
     synth.initContext();
     synth.startAmbientBgm();
+    synth.resumeMusicTrack();
     document.removeEventListener('click', unlockAudio);
     document.removeEventListener('keydown', unlockAudio);
     document.removeEventListener('touchstart', unlockAudio);
   };
+  synth.startAmbientBgm();
   document.addEventListener('click', unlockAudio, { once: true });
   document.addEventListener('keydown', unlockAudio, { once: true });
   document.addEventListener('touchstart', unlockAudio, { once: true });
@@ -68,5 +71,5 @@ async function bootstrap() {
 }
 
 bootstrap().catch((err) => {
-  console.error('Failed to initialize Cyber-Immunology:', err);
+  console.error('Failed to initialize Microcosm:', err);
 });

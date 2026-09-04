@@ -1,4 +1,4 @@
-# CYBER-IMMUNOLOGY: NEON MICROCOSM
+# MICROCOSM
 ### High-Performance WebGL Tower Defence Game
 
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.7-blue.svg)](https://www.typescriptlang.org/)
@@ -7,7 +7,7 @@
 [![Vitest](https://img.shields.io/badge/Vitest-3.0-green.svg)](https://vitest.dev/)
 [![Playwright](https://img.shields.io/badge/Playwright-1.50-red.svg)](https://playwright.dev/)
 
-**Cyber-Immunology: Neon Microcosm** is a fast-paced, high-performance browser tower defence game built for the hackathon. Protect the human vascular network from invading geometric viral pathogens by synthesizing specialized antibody sentinels and cellular bio-defenses.
+**Microcosm** is a fast-paced, high-performance browser tower defence game built for the hackathon. Protect the human vascular network from invading geometric viral pathogens by synthesizing specialized antibody sentinels and cellular bio-defenses.
 
 ---
 
@@ -114,12 +114,13 @@ Never place towers randomly along the path. Construct concentrated **Kill Zones*
   - `Resident` (Casual): Immune system in peak equilibrium. Higher starting ATP (450), +15% income.
   - `Acute` (Standard): Standard active viral infection. 350 starting ATP, balanced pathogen stats.
   - `Critical` (Hardcore): Severe multi-vector infection. 280 starting ATP, +25% enemy HP, +10% speed.
+  - `Extreme` (Nightmare): Hyper-accelerated pathogen cascade. 220 starting ATP, 0.65x income, +75% enemy HP, +30% speed.
 
 ---
 
 ## 🏗️ Technical Architecture & Quality
 
-The codebase enforces strict separation of concerns between deterministic headless game logic, WebGL rendering, Web Audio synthesis, and UI telemetry:
+The codebase enforces strict separation of concerns between deterministic headless game logic, WebGL rendering, Web Audio synthesis, and UI telemetry. For a comprehensive breakdown of the engine, procedural algorithms, and event bus, see the **[Architecture Guide](docs/ARCHITECTURE.md)**.
 
 ```mermaid
 flowchart TD

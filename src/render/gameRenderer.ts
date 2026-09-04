@@ -650,11 +650,33 @@ export class GameRenderer {
     g.fill({ color: 0xffffff, alpha: 0.95 });
   }
 
+  private getTowerTextureKey(tower: TowerInstance): string {
+    if (tower.level >= 3 && tower.selectedBranch) {
+      if (tower.typeId === 'IGG') {
+        if (tower.selectedBranch === 'A') return 'upgrade_HYPERPULSE_BARRAGE';
+        if (tower.selectedBranch === 'B') return 'upgrade_ANTIBODY_STORM';
+      } else if (tower.typeId === 'IGA') {
+        if (tower.selectedBranch === 'A') return 'upgrade_DEEP_FREEZE';
+        if (tower.selectedBranch === 'B') return 'upgrade_GLACIAL_AURA';
+      } else if (tower.typeId === 'IGM') {
+        if (tower.selectedBranch === 'A') return 'upgrade_TOXIN_NEBULA';
+        if (tower.selectedBranch === 'B') return 'upgrade_CHAIN_REACTION';
+      } else if (tower.typeId === 'KILLER_T') {
+        if (tower.selectedBranch === 'A') return 'upgrade_PERFORIN_LANCE';
+        if (tower.selectedBranch === 'B') return 'upgrade_CYTOTOXIC_NOVA';
+      }
+    }
+    return `tower_${tower.typeId}`;
+  }
+
   private renderTowers(): void {
     const g = this.towerLayer;
     g.clear();
 
+    const activeTowerIds = new Set<string>();
+
     for (const tower of this.engine.towers.values()) {
+      activeTowerIds.add(tower.id);
       const isSelected = this.engine.selectedTowerId === tower.id;
       const x = tower.position.x;
       const y = tower.position.y;
@@ -668,8 +690,6 @@ export class GameRenderer {
       }
 
       // Tower base bio-socket & pedestal node
-      // Soft membrane aura makes each placement read as a living circular
-      // socket rather than a square tile.
       g.circle(x, y, 25 + Math.sin(this.pulsePhase * 2 + x) * 2);
       g.fill({ color: colorNum, alpha: 0.06 });
       g.stroke({ width: 1, color: colorNum, alpha: 0.25 });
@@ -677,135 +697,27 @@ export class GameRenderer {
       g.fill({ color: 0x050d1a, alpha: 0.95 });
       g.stroke({ width: 2, color: colorNum, alpha: isSelected ? 1 : 0.75 });
 
-      const ph = this.pulsePhase;
-      const firing = tower.cooldownMs > tower.fireIntervalMs * 0.7;
-      const recoil = firing ? 1.5 : 0;
+      const texKey = this.getTowerTextureKey(tower);
+      const texture = this.textures.get(texKey) || this.textures.get(`tower_${tower.typeId}`);
 
-      // Bio-cellular bodies mirroring the field-manual sprites
-      if (tower.typeId === 'IGG') {
-        // IgG Pulse Sentinel: cyan tangled fibril mesh, 3 pseudopods, Y-antibody emitter
-        drawPseudopods(g, x, y, 12, 3, 9, 0x00bcd4, 0.6, ph, 1.2);
-        drawFibers(g, x, y, 12, 18, 2, 6, 0.5, 0x00e5ff, 0.55, ph, 1);
-        g.circle(x, y, 12);
-        g.fill({ color: 0x00838f, alpha: 0.95 });
-        g.stroke({ width: 1.5, color: 0x80deea, alpha: 0.9 });
-        g.circle(x + 1, y + 1, 5.5);
-        g.fill({ color: 0x0097a7, alpha: 0.9 });
+      if (texture) {
+        let sprite = this.towerSprites.get(tower.id);
+        if (!sprite) {
+          sprite = new Sprite(texture);
+          sprite.anchor.set(0.5);
+          this.towerSpriteContainer.addChild(sprite);
+          this.towerSprites.set(tower.id, sprite);
+        } else if (sprite.texture !== texture) {
+          sprite.texture = texture;
+        }
 
-        // Y-Antibody emitter pointing at the target (or up when idle)
-        const target = tower.targetId ? this.engine.enemies.get(tower.targetId) : undefined;
-        const aim = target ? Math.atan2(target.position.y - y, target.position.x - x) : -Math.PI / 2;
-        const stemLen = 5 + recoil;
-        const hx = x + Math.cos(aim) * stemLen;
-        const hy = y + Math.sin(aim) * stemLen;
-        g.moveTo(x - Math.cos(aim) * 4, y - Math.sin(aim) * 4);
-        g.lineTo(hx, hy);
-        g.stroke({ width: 3, color: 0xb2ebf2, cap: 'round' });
-        for (const side of [-0.65, 0.65]) {
-          g.moveTo(hx, hy);
-          g.lineTo(hx + Math.cos(aim + side) * 6, hy + Math.sin(aim + side) * 6);
-          g.stroke({ width: 2.2, color: 0x00e5ff, cap: 'round' });
-          g.circle(hx + Math.cos(aim + side) * 6, hy + Math.sin(aim + side) * 6, 1.4);
-          g.fill({ color: 0xffffff });
-        }
-        g.circle(hx, hy, 2.2);
-        g.fill({ color: 0xffffff });
-      } else if (tower.typeId === 'IGM') {
-        // IgM Cluster Cannon: pentameric 5-lobed macromolecule joined by a J-chain
-        const lobeR = 8.5 + (firing ? 1.5 : 0);
-        for (let a = 0; a < 5; a++) {
-          const ang = (a * Math.PI * 2) / 5 + ph * 0.6;
-          const nx = (((a + 1) % 5) * Math.PI * 2) / 5 + ph * 0.6;
-          g.moveTo(x + Math.cos(ang) * lobeR, y + Math.sin(ang) * lobeR);
-          g.lineTo(x + Math.cos(nx) * lobeR, y + Math.sin(nx) * lobeR);
-          g.stroke({ width: 2.5, color: 0x880e4f, alpha: 0.7 });
-          g.moveTo(x, y);
-          g.lineTo(x + Math.cos(ang) * lobeR, y + Math.sin(ang) * lobeR);
-          g.stroke({ width: 2, color: 0x880e4f, alpha: 0.6 });
-        }
-        for (let a = 0; a < 5; a++) {
-          const ang = (a * Math.PI * 2) / 5 + ph * 0.6;
-          const lx = x + Math.cos(ang) * lobeR;
-          const ly = y + Math.sin(ang) * lobeR;
-          g.circle(lx, ly, 4.8);
-          g.fill({ color: 0xad1457, alpha: 0.95 });
-          g.stroke({ width: 1, color: 0xf48fb1, alpha: 0.85 });
-          g.circle(lx - 1.2, ly - 1.2, 1.5);
-          g.fill({ color: 0xffffff, alpha: 0.6 });
-        }
-        g.circle(x, y, 4.5);
-        g.fill({ color: 0xf8bbd0 });
-        g.stroke({ width: 1.5, color: 0xc2185b });
-        g.circle(x, y, 1.8);
-        g.fill({ color: 0xffffff });
-      } else if (tower.typeId === 'IGA') {
-        // IgA Cryo-Tether: dense green fibrous cell, crystalline spikes, dimeric secretory link
-        drawFibers(g, x, y, 11, 16, 2, 5, 0.5, 0xb9f6ca, 0.5, ph, 1);
-        for (let c = 0; c < 10; c++) {
-          const ca = (c / 10) * Math.PI * 2 + ph * 0.25;
-          const tipR = 15 + Math.sin(c * 2.8 + ph) * 2;
-          g.poly([
-            x + Math.cos(ca - 0.16) * 10,
-            y + Math.sin(ca - 0.16) * 10,
-            x + Math.cos(ca) * tipR,
-            y + Math.sin(ca) * tipR,
-            x + Math.cos(ca + 0.16) * 10,
-            y + Math.sin(ca + 0.16) * 10,
-          ]);
-          g.fill({ color: 0xe8ffe0, alpha: 0.85 });
-          g.stroke({ width: 0.6, color: 0x2e7d32, alpha: 0.8 });
-        }
-        g.circle(x, y, 11);
-        g.fill({ color: 0x1b5e20, alpha: 0.95 });
-        g.stroke({ width: 1.5, color: 0xb9f6ca, alpha: 0.9 });
-        g.ellipse(x - 4.5, y, 3.2, 2.3);
-        g.fill({ color: 0x33691e });
-        g.stroke({ width: 0.8, color: 0xccff90 });
-        g.ellipse(x + 4.5, y, 3.2, 2.3);
-        g.fill({ color: 0x33691e });
-        g.stroke({ width: 0.8, color: 0xccff90 });
-        g.roundRect(x - 2.5, y - 2.5, 5, 5, 1.2);
-        g.fill({ color: 0x76ff03 });
-        g.stroke({ width: 0.8, color: 0xffffff });
-      } else if (tower.typeId === 'KILLER_T') {
-        // Killer T-Cell Prism: amber microvilli crown, blue cytotoxic cytoplasm, prism core
-        for (let m = 0; m < 18; m++) {
-          const ma = (m / 18) * Math.PI * 2 + ph * 0.4;
-          const outer = 16.5 + Math.sin(m * 3.1 + ph * 2) * 1.5;
-          g.moveTo(x + Math.cos(ma) * 12, y + Math.sin(ma) * 12);
-          g.lineTo(x + Math.cos(ma) * outer, y + Math.sin(ma) * outer);
-          g.stroke({ width: 2, color: 0xffd54f, cap: 'round' });
-          g.circle(x + Math.cos(ma) * outer, y + Math.sin(ma) * outer, 0.9);
-          g.fill({ color: 0xfff8e1 });
-        }
-        g.circle(x, y, 12.5);
-        g.fill({ color: 0xbf360c, alpha: 0.95 });
-        g.stroke({ width: 1.5, color: 0xffd54f, alpha: 0.9 });
-        g.circle(x, y, 7);
-        g.fill({ color: 0x0288d1, alpha: 0.85 });
-        const lock = Math.min(1, (tower.beamLockDurationMs || 0) / 3000);
-        g.poly([x, y - 5.5 - lock * 1.5, x + 5, y + 3.5, x - 5, y + 3.5]);
-        g.fill({ color: 0xfff9c4, alpha: 0.95 });
-        g.stroke({ width: 1, color: 0xbf360c });
-        g.circle(x, y + 1, 2 + lock);
-        g.fill({ color: 0x00e5ff });
-      } else if (tower.typeId === 'MACROPHAGE') {
-        // Macrophage Engulfer: violet amoeboid blob with reaching pseudopods and lysosome granules
-        drawPseudopods(g, x, y, 11, 5, 9 + recoil * 2, 0xa78bfa, 0.75, ph, 2.4);
-        drawFibers(g, x, y, 11, 14, 2, 5, 0.6, 0xc4b5fd, 0.45, ph, 0.9);
-        g.poly(blobPoints(x, y, 12.5 + recoil, ph * 0.8, 16, 0.12));
-        g.fill({ color: 0x5b21b6, alpha: 0.95 });
-        g.stroke({ width: 1.4, color: 0xc4b5fd, alpha: 0.9 });
-        for (let i = 0; i < 5; i++) {
-          const a = (i / 5) * Math.PI * 2 + 0.4 + ph * 0.2;
-          const r = 5.5 + Math.sin(i * 2.3) * 1.5;
-          g.circle(x + Math.cos(a) * r, y + Math.sin(a) * r, 1.6 + Math.abs(Math.sin(i * 1.7)) * 0.8);
-          g.fill({ color: 0xede9fe, alpha: 0.9 });
-        }
-        g.circle(x - 1, y + 1, 4);
-        g.fill({ color: 0xa78bfa, alpha: 0.95 });
-        g.circle(x - 2.2, y - 0.2, 1.4);
-        g.fill({ color: 0xffffff, alpha: 0.7 });
+        sprite.visible = true;
+        sprite.x = x;
+        sprite.y = y;
+        const targetSize = 34 + (tower.level - 1) * 2;
+        sprite.width = targetSize;
+        sprite.height = targetSize;
+        sprite.rotation = Math.sin(this.pulsePhase * 0.5 + x) * 0.05;
       }
 
       // Upgrade tier level pips
@@ -814,14 +726,26 @@ export class GameRenderer {
         g.fill({ color: 0xfbbf24 });
       }
     }
+
+    // Cleanup recycled / sold tower sprites
+    for (const [id, sprite] of this.towerSprites.entries()) {
+      if (!activeTowerIds.has(id)) {
+        this.towerSpriteContainer.removeChild(sprite);
+        sprite.destroy();
+        this.towerSprites.delete(id);
+      }
+    }
   }
 
   private renderEnemies(): void {
     const g = this.enemyLayer;
     g.clear();
 
+    const activeEnemyIds = new Set<string>();
+
     for (const enemy of this.engine.enemies.values()) {
       if (enemy.isDead || enemy.isLeaked) continue;
+      activeEnemyIds.add(enemy.id);
 
       const x = enemy.position.x;
       const y = enemy.position.y;
@@ -833,7 +757,30 @@ export class GameRenderer {
       const pulse = Math.sin(this.pulsePhase * 4 + enemy.distanceTravelled) * 1.2;
       const radius = enemy.size / 2 + pulse;
 
-      this.drawEnemyBody(g, enemy, x, y, radius, ph);
+      const texKey = `enemy_${enemy.typeId}`;
+      const texture = this.textures.get(texKey);
+
+      if (texture) {
+        let sprite = this.enemySprites.get(enemy.id);
+        if (!sprite) {
+          sprite = new Sprite(texture);
+          sprite.anchor.set(0.5);
+          this.enemySpriteContainer.addChild(sprite);
+          this.enemySprites.set(enemy.id, sprite);
+        } else if (sprite.texture !== texture) {
+          sprite.texture = texture;
+        }
+
+        sprite.visible = true;
+        sprite.x = x;
+        sprite.y = y;
+        const spriteSize = enemy.size * 2.2 + pulse * 1.5;
+        sprite.width = spriteSize;
+        sprite.height = spriteSize;
+        sprite.rotation = enemy.tangentAngle || (ph * 0.5);
+      } else {
+        this.drawEnemyBody(g, enemy, x, y, radius, ph);
+      }
 
       // Status overlays
       if (isSlowed) {
@@ -878,6 +825,15 @@ export class GameRenderer {
         g.circle(x + barW / 2 + 4, barY + barH / 2, 2.8);
         g.fill({ color: 0xeceff1, alpha: 0.95 });
         g.stroke({ width: 0.8, color: 0xef5350 });
+      }
+    }
+
+    // Cleanup dead / leaked enemy sprites
+    for (const [id, sprite] of this.enemySprites.entries()) {
+      if (!activeEnemyIds.has(id)) {
+        this.enemySpriteContainer.removeChild(sprite);
+        sprite.destroy();
+        this.enemySprites.delete(id);
       }
     }
   }

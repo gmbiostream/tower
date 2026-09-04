@@ -2,7 +2,7 @@ import { Application, Container, Graphics, Text, TextStyle, Assets, Texture, Spr
 import { GameEngine } from '@/core/engine';
 import { TowerTypeId, GridCoord, EnemyInstance, TowerInstance } from '@/core/types';
 import { TOWER_DEFINITIONS } from '@/data/towers';
-import { ENEMY_PALETTES } from '@/ui/towerSprites';
+import { ENEMY_PALETTES, getBranchUpgradeSvg } from '@/ui/towerSprites';
 
 function hex(color: string): number {
   return parseInt(color.replace('#', '0x'), 16);
@@ -174,14 +174,14 @@ export class GameRenderer {
         autoDensity: true,
       });
       this.app.stage.addChild(this.rootContainer);
+      await this.loadSpriteTextures();
+
       if (this.app.canvas) {
         this.app.canvas.style.maxWidth = '100%';
         this.app.canvas.style.maxHeight = '100%';
         this.app.canvas.style.objectFit = 'contain';
         mountElement.appendChild(this.app.canvas);
       }
-
-      await this.loadSpriteTextures();
     } catch (err) {
       console.warn('WebGL initialization fallback:', err);
     }
@@ -223,6 +223,47 @@ export class GameRenderer {
     this.drawStaticBackground();
   }
 
+  public async loadSvgTexture(key: string, svg: string, size = 128): Promise<void> {
+    if (typeof window === 'undefined' || typeof document === 'undefined') return;
+    try {
+      const img = new Image();
+      const svgBlob = new Blob([svg], { type: 'image/svg+xml;charset=utf-8' });
+      const url = URL.createObjectURL(svgBlob);
+      await new Promise<void>((resolve, reject) => {
+        img.onload = () => resolve();
+        img.onerror = (err) => reject(err);
+        img.src = url;
+      });
+      URL.revokeObjectURL(url);
+
+      const canvas = document.createElement('canvas');
+      canvas.width = size;
+      canvas.height = size;
+      const ctx = canvas.getContext('2d');
+      if (ctx) {
+        ctx.drawImage(img, 0, 0, size, size);
+        const texture = Texture.from(canvas);
+        if (texture) {
+          this.textures.set(key, texture);
+        }
+      }
+    } catch (err) {
+      console.warn(`Could not create SVG texture for ${key}:`, err);
+    }
+  }
+
+  public getTowerSprite(towerId: string): Sprite | undefined {
+    return this.towerSprites.get(towerId);
+  }
+
+  public getTexture(key: string): Texture | undefined {
+    return this.textures.get(key);
+  }
+
+  public setTexture(key: string, texture: Texture): void {
+    this.textures.set(key, texture);
+  }
+
   private async loadSpriteTextures(): Promise<void> {
     const assetsToLoad: Record<string, string> = {
       // Enemies
@@ -239,15 +280,21 @@ export class GameRenderer {
       'tower_KILLER_T': '/sprites/killer_t-cell.png',
       'tower_MACROPHAGE': '/sprites/macrophage.png',
 
-      // Tower Upgrades / Branches
+      // Tower Upgrades / Branches with pre-rendered raster sprites
       'upgrade_HYPERPULSE_BARRAGE': '/sprites/hyperpulse_barrage.png',
+      'upgrade_IGG_A': '/sprites/hyperpulse_barrage.png',
       'upgrade_ANTIBODY_STORM': '/sprites/antibody_storm.png',
+      'upgrade_IGG_B': '/sprites/antibody_storm.png',
       'upgrade_DEEP_FREEZE': '/sprites/deep_freeze.png',
+      'upgrade_IGA_A': '/sprites/deep_freeze.png',
       'upgrade_GLACIAL_AURA': '/sprites/glacial_aura.png',
+      'upgrade_IGA_B': '/sprites/glacial_aura.png',
       'upgrade_TOXIN_NEBULA': '/sprites/toxin_nebula.png',
+      'upgrade_IGM_A': '/sprites/toxin_nebula.png',
       'upgrade_CHAIN_REACTION': '/sprites/chain_reaction.png',
-      'upgrade_PERFORIN_LANCE': '/sprites/killer_t-cell.png',
+      'upgrade_IGM_B': '/sprites/chain_reaction.png',
       'upgrade_CYTOTOXIC_NOVA': '/sprites/cytotoxic_nova.png',
+      'upgrade_KILLER_T_B': '/sprites/cytotoxic_nova.png',
     };
 
     for (const [key, path] of Object.entries(assetsToLoad)) {
@@ -260,6 +307,19 @@ export class GameRenderer {
         console.warn(`Could not load sprite texture for ${key} at ${path}:`, err);
       }
     }
+
+    // Generate high-resolution vector textures for all branches concurrently
+    const svgPromises: Promise<void>[] = [];
+    for (const [towerTypeId, def] of Object.entries(TOWER_DEFINITIONS)) {
+      for (const branch of def.branches) {
+        const key = `upgrade_${towerTypeId}_${branch.id}`;
+        if (!this.textures.has(key)) {
+          const svg = getBranchUpgradeSvg(branch.special || branch.name, 128);
+          svgPromises.push(this.loadSvgTexture(key, svg));
+        }
+      }
+    }
+    await Promise.all(svgPromises);
   }
 
   public triggerScreenShake(durationMs: number, intensity: number): void {
@@ -650,7 +710,7 @@ export class GameRenderer {
     g.fill({ color: 0xffffff, alpha: 0.95 });
   }
 
-  private getTowerTextureKey(tower: TowerInstance): string {
+  public getTowerTextureKey(tower: TowerInstance): string {
     if (tower.level >= 3 && tower.selectedBranch) {
       if (tower.typeId === 'IGG') {
         if (tower.selectedBranch === 'A') return 'upgrade_HYPERPULSE_BARRAGE';
@@ -662,9 +722,9 @@ export class GameRenderer {
         if (tower.selectedBranch === 'A') return 'upgrade_TOXIN_NEBULA';
         if (tower.selectedBranch === 'B') return 'upgrade_CHAIN_REACTION';
       } else if (tower.typeId === 'KILLER_T') {
-        if (tower.selectedBranch === 'A') return 'upgrade_PERFORIN_LANCE';
         if (tower.selectedBranch === 'B') return 'upgrade_CYTOTOXIC_NOVA';
       }
+      return `upgrade_${tower.typeId}_${tower.selectedBranch}`;
     }
     return `tower_${tower.typeId}`;
   }
@@ -697,8 +757,20 @@ export class GameRenderer {
       g.fill({ color: 0x050d1a, alpha: 0.95 });
       g.stroke({ width: 2, color: colorNum, alpha: isSelected ? 1 : 0.75 });
 
+      // Specialization branch aura ring on bio-membrane
+      if (tower.level >= 3 && tower.selectedBranch) {
+        const branchColor =
+          tower.selectedBranch === 'A' ? 0x00f5ff :
+          tower.selectedBranch === 'B' ? 0xf43f5e :
+          tower.selectedBranch === 'C' ? 0x38bdf8 :
+          tower.selectedBranch === 'D' ? 0xa3e635 :
+          0xfbbf24;
+        g.circle(x, y, 22);
+        g.stroke({ width: tower.level === 4 ? 2.5 : 1.5, color: branchColor, alpha: 0.85 });
+      }
+
       const texKey = this.getTowerTextureKey(tower);
-      const texture = this.textures.get(texKey) || this.textures.get(`tower_${tower.typeId}`);
+      const texture = this.textures.get(texKey) || this.textures.get(`upgrade_${tower.typeId}_${tower.selectedBranch}`) || this.textures.get(`tower_${tower.typeId}`);
 
       if (texture) {
         let sprite = this.towerSprites.get(tower.id);

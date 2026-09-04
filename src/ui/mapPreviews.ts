@@ -1,5 +1,8 @@
 /**
  * Vector SVG Map Previews for Cyber-Immunology TD.
+ * 
+ * 
+ * 
  * Faithfully converted from the biological sector map designs.
  */
 

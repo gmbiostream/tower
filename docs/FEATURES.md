@@ -20,17 +20,17 @@ Story backlog: [User Stories](USER_STORIES.md)
 | F02 | Map and Enemy Path | P0 | R1 | 1 and 4 | F01 |
 | F03 | Wave Spawning and Progression | P0 | R2 | 2 and 4 | F01, F02 |
 | F04 | Enemy Lifecycle and Variety | P0/P1 | R2, R6, B1 | 2 and 6 | F02, F03 |
-| F05 | Distinct Antibody Combat | P0/P1 | R3 | 3, 4, and 5 | F01, F04 |
-| F06 | Tower Placement and Purchase | P0 | R4 | 3 and 4 | F02, F05, F07 |
-| F07 | ATP Economy | P0 | R5 | 3 and 4 | F01 |
+| F05 | Distinct Antibody Combat & 5-Branch Matrix | P0/P1 | R3 | 3, 4, and 5 | F01, F04 |
+| F06 | Tower Placement, Membrane Rings & Purchase | P0 | R4 | 3 and 4 | F02, F05, F07 |
+| F07 | ATP Economy, Synthesis Audio & Recycling | P0 | R5 | 3 and 4 | F01 |
 | F08 | Integrity, Victory, and Defeat | P0 | R6, R7 | 2 and 4 | F03, F04 |
-| F09 | Gameplay HUD | P0 | R8 | 3 and 4 | F03, F07, F08, F14 |
-| F10 | Tower Inspection and Upgrades | P1 | B2 | 5 | F05, F06, F07 |
+| F09 | Gameplay HUD & Biological SVG Icons | P0 | R8 | 3 and 4 | F03, F07, F08, F14 |
+| F10 | Tower Inspection & 5-Branch Upgrades | P1 | B2 | 5 | F05, F06, F07 |
 | F11 | Session Controls | P1 | B3 | 6 | F01, F03, F08 |
-| F12 | Maps and Difficulty Selection | P1 | B4 | 6 | F02, F03, F07 |
-| F13 | Sound, Animation, and Feedback | P1 | B5 | 7 | F04, F05, F08 |
+| F12 | Maps and Difficulty Selection (incl. Extreme) | P1 | B4 | 6 | F02, F03, F07 |
+| F13 | Sound Synthesizer & ATP SFX | P1 | B5 | 7 | F04, F05, F08 |
 | F14 | Score, Results, and High Scores | P0/P1 | R8, B6 | 3 and 8 | F03, F04, F08 |
-| F15 | Cyber-Immunology Experience | P1 | B7 | 4 and 7 | F02, F05, F09, F13 |
+| F15 | Microcosm Biological Experience & Fiber Sprites | P1 | B7 | 4 and 7 | F02, F05, F09, F13 |
 | F16 | Architecture, Tests, and Delivery | P0 | T1, T2, T3 | Continuous, 9, and 10 | All completed features |
 
 ## 3. Feature Details
@@ -99,6 +99,7 @@ Goal: Provide at least three strategically and visually different tower behaviou
 | F05.5 IgA Cryo-Tether | P0 | Continuous damage and slow tether | It applies visible damage and a bounded temporary speed reduction. |
 | F05.6 Killer T-Cell Prism | P1 | Long-range beam with target-lock damage ramp | Ramp increases while locked and resets when the target changes or leaves range. |
 | F05.7 Combat visuals | P0 | Distinct silhouette, color, projectile, and impact for each tower | A viewer can identify all three required behaviours without opening a stat panel. |
+| F05.8 Specialized ammunition & 5-Branch trees | P1 | Unique munitions (bio-photons, goo globs, plasma clouds, thermal lances) and 5 upgrade branches (Kinetic, Cryo, Acid, Thermal, Phagocytic) | Each branch manifests distinct projectile visuals, status mechanics, and apex tier 4 scaling. |
 
 ### F06: Tower Placement and Purchase
 
@@ -111,6 +112,7 @@ Goal: Make purchasing and placement fast, clear, and difficult to misuse.
 | F06.3 Placement validation | P0 | Bounds, terrain, path, occupancy, and affordability checks | Simulation and visual preview return the same result for every cell. |
 | F06.4 Purchase transaction | P0 | Atomic tower creation and ATP deduction | Success charges once; failure creates nothing and charges nothing. |
 | F06.5 Placement feedback | P0 | Valid cyan state, invalid coral state, sound, and synthesis animation | The result is visible immediately and does not shift the board layout. |
+| F06.6 Circular Bio-Membrane Rings | P1 | Organic circular placement rings with animated glow auras | Placement replaces rigid square tiles with translucent pulsing biological membranes. |
 
 ### F07: ATP Economy
 
@@ -122,7 +124,8 @@ Goal: Support meaningful purchasing decisions with exact, visible resource chang
 | F07.2 Kill rewards | P0 | Enemy-specific ATP rewards | Each defeated enemy awards its value once; leaked enemies award nothing. |
 | F07.3 Wave rewards | P0 | Clear bonus and optional Send Early bonus | Bonuses are deterministic and itemized for score or results. |
 | F07.4 Spending | P0 | Tower and upgrade charges | Transactions cannot make ATP negative. |
-| F07.5 Selling | P1 | Refund of 70% of total tower investment | Refund includes upgrades, uses one rounding rule, and is applied once. |
+| F07.5 Selling & Tactical Recycling | P1 | Dynamic depreciation refund and tower recycling command (`RECYCLE_TOWER`) | Reclaims invested ATP adjusted for remaining tower lifespan. |
+| F07.6 ATP Synthesizer Feedback | P1 | Dedicated Web Audio sound synthesis for ATP gain and spend | Chimes on income/rewards and thuds on expenditures trigger synchronously. |
 
 ### F08: Integrity, Victory, and Defeat
 
@@ -148,17 +151,17 @@ Goal: Keep every required status visible and readable during play.
 | F09.4 Integrity telemetry | P0 | Numeric value and compact visual meter | Critical integrity is clear without obscuring the board. |
 | F09.5 Responsive layout | P0 | Stable top HUD and bottom tower dock | No overlap occurs at supported desktop and laptop viewports. |
 
-### F10: Tower Inspection and Upgrades
+### F10: Tower Inspection and 5-Branch Upgrades
 
 Goal: Add strategic progression without hiding important costs or effects.
 
 | Subfeature | Priority | Deliverable | Definition of Done |
 | --- | --- | --- | --- |
 | F10.1 Inspection panel | P1 | Current stats, target mode, upgrades, branch, and sell value | Selecting a tower shows values derived from current state. |
-| F10.2 Base upgrade | P1 | Initial stat improvement | Cost and before-or-after values are shown before purchase. |
-| F10.3 Branch choice | P1 | Two mutually exclusive specializations | Purchasing one branch permanently disables the other for that tower. |
-| F10.4 Final upgrade | P2 | Stronger version of the selected specialization | Effect works in combat and is represented in tower visuals. |
-| F10.5 Upgrade transaction | P1 | Atomic ATP charge and stat mutation | Unaffordable or invalid upgrades leave state unchanged. |
+| F10.2 Base upgrade | P1 | Initial stat improvement with performance discounts | Cost and before-or-after values are shown before purchase. |
+| F10.3 5-Branch specialization matrix | P1 | Five strategic branches (Kinetic, Cryo, Acid, Thermal, Phagocytic) | Purchasing a branch permanently commits the tower to that evolutionary path. |
+| F10.4 Apex tier upgrades | P2 | Tier 4 Master upgrade for each branch | Boosts damage multiplier and applies apex specialization mechanics. |
+| F10.5 Upgrade transaction | P1 | Atomic ATP charge, performance multiplier calculation, and stat mutation | Unaffordable or invalid upgrades leave state unchanged. |
 
 ### F11: Session Controls
 
@@ -181,7 +184,7 @@ Goal: Provide replay variety through configuration rather than duplicated game l
 | F12.2 Vascular Run | P1 | Long beginner-friendly route | Route validates and provides useful build space. |
 | F12.3 Lymph Spiral | P1 | Curved route with central coverage opportunities | Route validates and creates a distinct range strategy. |
 | F12.4 Neural Fork | P2 | Two entries that converge near the core | Both queues and paths progress and complete correctly. |
-| F12.5 Difficulty modifiers | P1 | Resident, Acute, and Critical health, speed, and income multipliers | Modifiers apply once and are shown before launch. |
+| F12.5 Difficulty modifiers | P1 | Resident, Acute, Critical, and Extreme health, speed, and income multipliers | Modifiers apply once and are shown before launch. |
 
 ### F13: Sound, Animation, and Feedback
 
@@ -195,6 +198,7 @@ Goal: Make actions satisfying while preserving readability and performance.
 | F13.4 Combat animation | P1 | Recoil, trails, impact rings, shatter effects, and damage numbers | Effects correspond to domain events and never alter simulation. |
 | F13.5 Core feedback | P1 | Integrity-dependent pulse, leak flash, and brief shake | Feedback is noticeable but does not obscure controls or telemetry. |
 | F13.6 Effect budgets | P1 | Caps and pooling for short-lived visuals and sounds | Stress scenario remains responsive without unbounded objects. |
+| F13.7 ATP Sound Synthesis | P1 | Dual-oscillator melodic chime (`playAtpGain`) and filtered thud (`playAtpSpend`) | Triggers synchronously with all currency earnings and expenditures. |
 
 ### F14: Score, Results, and High Scores
 
@@ -208,7 +212,7 @@ Goal: Make performance measurable during and after a run.
 | F14.4 High-score screen | P1 | Menu view with map and difficulty filters | Stored entries display rank, score, outcome, and date. |
 | F14.5 Storage validation | P1 | Versioned parsing and safe fallback | Corrupt or old local data cannot prevent the game from starting. |
 
-### F15: Cyber-Immunology Experience
+### F15: Microcosm Biological Experience
 
 Goal: Present one coherent, attractive, non-gross world across every screen.
 
@@ -216,10 +220,10 @@ Goal: Present one coherent, attractive, non-gross world across every screen.
 | --- | --- | --- | --- |
 | F15.1 Typography | P1 | Syne Mono display, Share Tech Mono telemetry, and Rajdhani interface text | Fonts preload or fall back without layout instability. |
 | F15.2 Visual tokens | P1 | Color, spacing, borders, glow, and motion variables | UI and renderer use the same semantic palette. |
-| F15.3 Unit art | P1 | Original microscopy-inspired immune-cell and virus sprite atlas | Towers and enemies remain distinguishable by shape and motion, not color alone. |
-| F15.4 Interface language | P1 | ATP, Organ Integrity, Host Stabilized, and Host Compromised terminology | Copy is consistent across HUD, menus, help, and results. |
-| F15.5 Accessibility and readability | P1 | Contrast, motion restraint, stable sizing, and non-color cues | Required information remains readable during the busiest tested wave. |
-| F15.6 Sprite pipeline | P1 | Transparent WebP atlas with small frame sequences and PixiJS effect layers | Assets are original or redistributable, load before play, batch efficiently, and remain crisp at gameplay scale. |
+| F15.3 Biological Vector Sprites | P1 | Procedural SVG vectors for all pathogens, antibody sentinels, and upgrade branches | Rendered with `makeFibers`, `smoothBlob`, and `pseudopod` algorithms. |
+| F15.4 Biological HUD Icons | P1 | ATPIcon (adenine + triphosphate), HealthBar (vessel + EKG), ScoreIcon | High-fidelity vector telemetry icons integrated across HUD and modals. |
+| F15.5 Interface language | P1 | Microcosm, ATP, Organ Integrity, Host Stabilized, and Host Compromised terminology | Copy is consistent across HUD, menus, help, and results. |
+| F15.6 Accessibility and readability | P1 | Contrast, motion restraint, stable sizing, and non-color cues | Required information remains readable during the busiest tested wave. |
 
 ### F16: Architecture, Tests, and Delivery
 

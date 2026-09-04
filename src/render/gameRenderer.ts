@@ -1,7 +1,83 @@
-import { Application, Container, Graphics, Text, TextStyle } from 'pixi.js';
+import { Application, Container, Graphics, Text, TextStyle, Assets, Texture, Sprite } from 'pixi.js';
 import { GameEngine } from '@/core/engine';
-import { TowerTypeId, GridCoord } from '@/core/types';
+import { TowerTypeId, GridCoord, EnemyInstance, TowerInstance } from '@/core/types';
 import { TOWER_DEFINITIONS } from '@/data/towers';
+import { ENEMY_PALETTES } from '@/ui/towerSprites';
+
+function hex(color: string): number {
+  return parseInt(color.replace('#', '0x'), 16);
+}
+
+/** Tangled curved fibers around a cell (mirrors makeFibers in the SVG sprites). */
+function drawFibers(
+  g: Graphics,
+  x: number,
+  y: number,
+  baseR: number,
+  count: number,
+  minLen: number,
+  maxLen: number,
+  curliness: number,
+  color: number,
+  alpha: number,
+  phase: number,
+  width = 1
+): void {
+  for (let i = 0; i < count; i++) {
+    const a = (i / count) * Math.PI * 2 + phase * 0.3 + Math.sin(i * 1.618) * 0.28;
+    const len = minLen + Math.abs(Math.sin(i * 2.1 + 0.5 + phase * 0.5)) * (maxLen - minLen);
+    const curl = Math.sin(i * 4.1 + 0.7 + phase) * curliness;
+    g.moveTo(x + Math.cos(a) * baseR, y + Math.sin(a) * baseR);
+    g.quadraticCurveTo(
+      x + Math.cos(a + curl * 0.5) * (baseR + len * 0.58),
+      y + Math.sin(a + curl * 0.5) * (baseR + len * 0.58),
+      x + Math.cos(a + curl) * (baseR + len),
+      y + Math.sin(a + curl) * (baseR + len)
+    );
+    g.stroke({ width, color, alpha: alpha * (0.5 + Math.abs(Math.sin(i * 2.9)) * 0.5), cap: 'round' });
+  }
+}
+
+/** Organic blob outline (mirrors smoothBlob). */
+function blobPoints(x: number, y: number, radius: number, phase: number, n = 18, wobble = 0.1): number[] {
+  const points: number[] = [];
+  for (let i = 0; i < n; i++) {
+    const a = (i / n) * Math.PI * 2;
+    const r = radius * (1 + Math.sin(i * 2.1 + phase) * wobble + Math.sin(i * 4.7) * wobble * 0.5);
+    points.push(x + Math.cos(a) * r, y + Math.sin(a) * r);
+  }
+  return points;
+}
+
+/** Long curving pseudopod arms (mirrors pseudopod). */
+function drawPseudopods(
+  g: Graphics,
+  x: number,
+  y: number,
+  startR: number,
+  count: number,
+  length: number,
+  color: number,
+  alpha: number,
+  phase: number,
+  width = 1.5
+): void {
+  for (let i = 0; i < count; i++) {
+    const a = phase * 0.2 + (i / count) * Math.PI * 2 + i * 0.4;
+    const curl = (i % 2 === 0 ? 0.45 : -0.35) + Math.sin(phase + i) * 0.15;
+    const len = length * (0.75 + Math.abs(Math.sin(i * 1.7 + phase * 0.6)) * 0.5);
+    g.moveTo(x + Math.cos(a) * startR, y + Math.sin(a) * startR);
+    g.bezierCurveTo(
+      x + Math.cos(a + curl * 0.3) * (startR + len * 0.35),
+      y + Math.sin(a + curl * 0.3) * (startR + len * 0.35),
+      x + Math.cos(a + curl * 0.7) * (startR + len * 0.7),
+      y + Math.sin(a + curl * 0.7) * (startR + len * 0.7),
+      x + Math.cos(a + curl) * (startR + len),
+      y + Math.sin(a + curl) * (startR + len)
+    );
+    g.stroke({ width, color, alpha, cap: 'round' });
+  }
+}
 
 interface Particle {
   x: number;
@@ -32,10 +108,16 @@ export class GameRenderer {
   private pathLayer: Graphics;
   private coreLayer: Graphics;
   private towerLayer: Graphics;
+  private towerSpriteContainer: Container;
   private enemyLayer: Graphics;
+  private enemySpriteContainer: Container;
   private projectileLayer: Graphics;
   private effectsLayer: Graphics;
   private previewLayer: Graphics;
+
+  private textures: Map<string, Texture> = new Map();
+  private towerSprites: Map<string, Sprite> = new Map();
+  private enemySprites: Map<string, Sprite> = new Map();
 
   private particles: Particle[] = [];
   private floatingTexts: FloatingText[] = [];
@@ -56,7 +138,9 @@ export class GameRenderer {
     this.pathLayer = new Graphics();
     this.coreLayer = new Graphics();
     this.towerLayer = new Graphics();
+    this.towerSpriteContainer = new Container();
     this.enemyLayer = new Graphics();
+    this.enemySpriteContainer = new Container();
     this.projectileLayer = new Graphics();
     this.effectsLayer = new Graphics();
     this.previewLayer = new Graphics();
@@ -66,7 +150,9 @@ export class GameRenderer {
       this.pathLayer,
       this.coreLayer,
       this.towerLayer,
+      this.towerSpriteContainer,
       this.enemyLayer,
+      this.enemySpriteContainer,
       this.projectileLayer,
       this.previewLayer,
       this.effectsLayer
@@ -94,6 +180,8 @@ export class GameRenderer {
         this.app.canvas.style.objectFit = 'contain';
         mountElement.appendChild(this.app.canvas);
       }
+
+      await this.loadSpriteTextures();
     } catch (err) {
       console.warn('WebGL initialization fallback:', err);
     }
@@ -104,7 +192,12 @@ export class GameRenderer {
         this.createShatterParticles(event.position.x, event.position.y, 0x00f5ff, 12);
         this.addFloatingText(`+${event.atpReward} ATP`, event.position.x, event.position.y, '#fbbf24', 13);
       } else if (event.type === 'ENEMY_DAMAGED') {
-        if (event.amount >= 30) {
+        if (event.immune) {
+          const enemy = this.engine.enemies.get(event.enemyId);
+          if (enemy && Math.random() < 0.15) {
+            this.addFloatingText('IMMUNE', enemy.position.x, enemy.position.y - 14, '#eceff1', 10);
+          }
+        } else if (event.amount >= 30) {
           const enemy = this.engine.enemies.get(event.enemyId);
           if (enemy) {
             this.addFloatingText(`-${event.amount}`, enemy.position.x, enemy.position.y - 12, '#ff3366', 11);
@@ -128,6 +221,45 @@ export class GameRenderer {
     });
 
     this.drawStaticBackground();
+  }
+
+  private async loadSpriteTextures(): Promise<void> {
+    const assetsToLoad: Record<string, string> = {
+      // Enemies
+      'enemy_RHINOVIRUS': '/sprites/acute_pathogen.png',
+      'enemy_INFLUENZA': '/sprites/viral_agent.png',
+      'enemy_CORONA_TITAN': '/sprites/armored_virus.png',
+      'enemy_RETRO_MUTANT': '/sprites/cytokine_storm.png',
+      'enemy_HEATSHOCK_CARRIER': '/sprites/armored_virus.png',
+
+      // Towers Base
+      'tower_IGG': '/sprites/igg_pulse.png',
+      'tower_IGA': '/sprites/iga_cryo-tether.png',
+      'tower_IGM': '/sprites/igm_cluster.png',
+      'tower_KILLER_T': '/sprites/killer_t-cell.png',
+      'tower_MACROPHAGE': '/sprites/macrophage.png',
+
+      // Tower Upgrades / Branches
+      'upgrade_HYPERPULSE_BARRAGE': '/sprites/hyperpulse_barrage.png',
+      'upgrade_ANTIBODY_STORM': '/sprites/antibody_storm.png',
+      'upgrade_DEEP_FREEZE': '/sprites/deep_freeze.png',
+      'upgrade_GLACIAL_AURA': '/sprites/glacial_aura.png',
+      'upgrade_TOXIN_NEBULA': '/sprites/toxin_nebula.png',
+      'upgrade_CHAIN_REACTION': '/sprites/chain_reaction.png',
+      'upgrade_PERFORIN_LANCE': '/sprites/killer_t-cell.png',
+      'upgrade_CYTOTOXIC_NOVA': '/sprites/cytotoxic_nova.png',
+    };
+
+    for (const [key, path] of Object.entries(assetsToLoad)) {
+      try {
+        const tex = await Assets.load(path);
+        if (tex) {
+          this.textures.set(key, tex);
+        }
+      } catch (err) {
+        console.warn(`Could not load sprite texture for ${key} at ${path}:`, err);
+      }
+    }
   }
 
   public triggerScreenShake(durationMs: number, intensity: number): void {
@@ -536,104 +668,144 @@ export class GameRenderer {
       }
 
       // Tower base bio-socket & pedestal node
+      // Soft membrane aura makes each placement read as a living circular
+      // socket rather than a square tile.
+      g.circle(x, y, 25 + Math.sin(this.pulsePhase * 2 + x) * 2);
+      g.fill({ color: colorNum, alpha: 0.06 });
+      g.stroke({ width: 1, color: colorNum, alpha: 0.25 });
       g.circle(x, y, 20);
       g.fill({ color: 0x050d1a, alpha: 0.95 });
       g.stroke({ width: 2, color: colorNum, alpha: isSelected ? 1 : 0.75 });
 
-      // Outer rotating bio-receptor ring / filopodia
-      const rot = this.pulsePhase * 0.8;
-      for (let i = 0; i < 6; i++) {
-        const a = rot + (i * Math.PI * 2) / 6;
-        const flen = 15 + Math.sin(this.pulsePhase * 2 + i) * 2;
-        g.circle(x + Math.cos(a) * flen, y + Math.sin(a) * flen, 2);
-        g.fill({ color: colorNum, alpha: 0.8 });
-      }
+      const ph = this.pulsePhase;
+      const firing = tower.cooldownMs > tower.fireIntervalMs * 0.7;
+      const recoil = firing ? 1.5 : 0;
 
-      // Realistic Microscopy-inspired Bio-Cellular structures
+      // Bio-cellular bodies mirroring the field-manual sprites
       if (tower.typeId === 'IGG') {
-        // IgG Pulse Sentinel: Cyan dense tangled fiber network + Y-arm emitter
-        g.circle(x, y, 13);
-        g.fill({ color: 0x00838f, alpha: 0.9 });
-        g.stroke({ width: 1.5, color: 0x00e5ff, alpha: 0.85 });
+        // IgG Pulse Sentinel: cyan tangled fibril mesh, 3 pseudopods, Y-antibody emitter
+        drawPseudopods(g, x, y, 12, 3, 9, 0x00bcd4, 0.6, ph, 1.2);
+        drawFibers(g, x, y, 12, 18, 2, 6, 0.5, 0x00e5ff, 0.55, ph, 1);
+        g.circle(x, y, 12);
+        g.fill({ color: 0x00838f, alpha: 0.95 });
+        g.stroke({ width: 1.5, color: 0x80deea, alpha: 0.9 });
+        g.circle(x + 1, y + 1, 5.5);
+        g.fill({ color: 0x0097a7, alpha: 0.9 });
 
-        // Outer dense fibers
-        for (let f = 0; f < 8; f++) {
-          const fa = (f / 8) * Math.PI * 2 + this.pulsePhase * 0.5;
-          g.moveTo(x + Math.cos(fa) * 11, y + Math.sin(fa) * 11);
-          g.lineTo(x + Math.cos(fa + 0.3) * 16, y + Math.sin(fa + 0.3) * 16);
-          g.stroke({ width: 1.2, color: 0x80deea, alpha: 0.7 });
-        }
-
-        // Y-Antibody core emitter
-        g.moveTo(x, y + 4);
-        g.lineTo(x, y - 2);
+        // Y-Antibody emitter pointing at the target (or up when idle)
+        const target = tower.targetId ? this.engine.enemies.get(tower.targetId) : undefined;
+        const aim = target ? Math.atan2(target.position.y - y, target.position.x - x) : -Math.PI / 2;
+        const stemLen = 5 + recoil;
+        const hx = x + Math.cos(aim) * stemLen;
+        const hy = y + Math.sin(aim) * stemLen;
+        g.moveTo(x - Math.cos(aim) * 4, y - Math.sin(aim) * 4);
+        g.lineTo(hx, hy);
         g.stroke({ width: 3, color: 0xb2ebf2, cap: 'round' });
-        g.moveTo(x, y - 2);
-        g.lineTo(x - 5, y - 7);
-        g.stroke({ width: 2.2, color: 0x00e5ff, cap: 'round' });
-        g.moveTo(x, y - 2);
-        g.lineTo(x + 5, y - 7);
-        g.stroke({ width: 2.2, color: 0x00e5ff, cap: 'round' });
-
-        g.circle(x, y - 2, 2.5);
+        for (const side of [-0.65, 0.65]) {
+          g.moveTo(hx, hy);
+          g.lineTo(hx + Math.cos(aim + side) * 6, hy + Math.sin(aim + side) * 6);
+          g.stroke({ width: 2.2, color: 0x00e5ff, cap: 'round' });
+          g.circle(hx + Math.cos(aim + side) * 6, hy + Math.sin(aim + side) * 6, 1.4);
+          g.fill({ color: 0xffffff });
+        }
+        g.circle(hx, hy, 2.2);
         g.fill({ color: 0xffffff });
       } else if (tower.typeId === 'IGM') {
-        // IgM Cluster Cannon: Pentameric 5-lobed macromolecule with satellite plasma nodes
+        // IgM Cluster Cannon: pentameric 5-lobed macromolecule joined by a J-chain
+        const lobeR = 8.5 + (firing ? 1.5 : 0);
         for (let a = 0; a < 5; a++) {
-          const ang = (a * Math.PI * 2) / 5 + this.pulsePhase * 0.6;
-          const lx = x + Math.cos(ang) * 8.5;
-          const ly = y + Math.sin(ang) * 8.5;
-          g.circle(lx, ly, 4.5);
-          g.fill({ color: 0xad1457, alpha: 0.9 });
-          g.stroke({ width: 1, color: 0xf48fb1, alpha: 0.8 });
-          g.circle(lx - 1, ly - 1, 1.5);
+          const ang = (a * Math.PI * 2) / 5 + ph * 0.6;
+          const nx = (((a + 1) % 5) * Math.PI * 2) / 5 + ph * 0.6;
+          g.moveTo(x + Math.cos(ang) * lobeR, y + Math.sin(ang) * lobeR);
+          g.lineTo(x + Math.cos(nx) * lobeR, y + Math.sin(nx) * lobeR);
+          g.stroke({ width: 2.5, color: 0x880e4f, alpha: 0.7 });
+          g.moveTo(x, y);
+          g.lineTo(x + Math.cos(ang) * lobeR, y + Math.sin(ang) * lobeR);
+          g.stroke({ width: 2, color: 0x880e4f, alpha: 0.6 });
+        }
+        for (let a = 0; a < 5; a++) {
+          const ang = (a * Math.PI * 2) / 5 + ph * 0.6;
+          const lx = x + Math.cos(ang) * lobeR;
+          const ly = y + Math.sin(ang) * lobeR;
+          g.circle(lx, ly, 4.8);
+          g.fill({ color: 0xad1457, alpha: 0.95 });
+          g.stroke({ width: 1, color: 0xf48fb1, alpha: 0.85 });
+          g.circle(lx - 1.2, ly - 1.2, 1.5);
           g.fill({ color: 0xffffff, alpha: 0.6 });
         }
-        g.circle(x, y, 5);
-        g.fill({ color: 0xfce4ec });
-        g.stroke({ width: 1.5, color: 0xe040fb });
+        g.circle(x, y, 4.5);
+        g.fill({ color: 0xf8bbd0 });
+        g.stroke({ width: 1.5, color: 0xc2185b });
+        g.circle(x, y, 1.8);
+        g.fill({ color: 0xffffff });
       } else if (tower.typeId === 'IGA') {
-        // IgA Cryo-Tether: Dense green fibrous cell with crystalline freeze spikes
-        g.circle(x, y, 12);
-        g.fill({ color: 0x1b5e20, alpha: 0.95 });
-        g.stroke({ width: 1.5, color: 0x76ff03, alpha: 0.9 });
-
-        // Crystalline ice spikes
-        for (let c = 0; c < 6; c++) {
-          const ca = (c / 6) * Math.PI * 2 + this.pulsePhase * 0.3;
-          const tipX = x + Math.cos(ca) * 16;
-          const tipY = y + Math.sin(ca) * 16;
+        // IgA Cryo-Tether: dense green fibrous cell, crystalline spikes, dimeric secretory link
+        drawFibers(g, x, y, 11, 16, 2, 5, 0.5, 0xb9f6ca, 0.5, ph, 1);
+        for (let c = 0; c < 10; c++) {
+          const ca = (c / 10) * Math.PI * 2 + ph * 0.25;
+          const tipR = 15 + Math.sin(c * 2.8 + ph) * 2;
           g.poly([
-            x + Math.cos(ca - 0.2) * 10,
-            y + Math.sin(ca - 0.2) * 10,
-            tipX,
-            tipY,
-            x + Math.cos(ca + 0.2) * 10,
-            y + Math.sin(ca + 0.2) * 10,
+            x + Math.cos(ca - 0.16) * 10,
+            y + Math.sin(ca - 0.16) * 10,
+            x + Math.cos(ca) * tipR,
+            y + Math.sin(ca) * tipR,
+            x + Math.cos(ca + 0.16) * 10,
+            y + Math.sin(ca + 0.16) * 10,
           ]);
           g.fill({ color: 0xe8ffe0, alpha: 0.85 });
+          g.stroke({ width: 0.6, color: 0x2e7d32, alpha: 0.8 });
         }
-        g.circle(x, y, 4);
-        g.fill({ color: 0xffffff });
+        g.circle(x, y, 11);
+        g.fill({ color: 0x1b5e20, alpha: 0.95 });
+        g.stroke({ width: 1.5, color: 0xb9f6ca, alpha: 0.9 });
+        g.ellipse(x - 4.5, y, 3.2, 2.3);
+        g.fill({ color: 0x33691e });
+        g.stroke({ width: 0.8, color: 0xccff90 });
+        g.ellipse(x + 4.5, y, 3.2, 2.3);
+        g.fill({ color: 0x33691e });
+        g.stroke({ width: 0.8, color: 0xccff90 });
+        g.roundRect(x - 2.5, y - 2.5, 5, 5, 1.2);
+        g.fill({ color: 0x76ff03 });
+        g.stroke({ width: 0.8, color: 0xffffff });
       } else if (tower.typeId === 'KILLER_T') {
-        // Killer T-Cell: Amber/gold dense cylindrical microvilli crown + blue cytotoxic cytoplasm
-        g.circle(x, y, 13);
+        // Killer T-Cell Prism: amber microvilli crown, blue cytotoxic cytoplasm, prism core
+        for (let m = 0; m < 18; m++) {
+          const ma = (m / 18) * Math.PI * 2 + ph * 0.4;
+          const outer = 16.5 + Math.sin(m * 3.1 + ph * 2) * 1.5;
+          g.moveTo(x + Math.cos(ma) * 12, y + Math.sin(ma) * 12);
+          g.lineTo(x + Math.cos(ma) * outer, y + Math.sin(ma) * outer);
+          g.stroke({ width: 2, color: 0xffd54f, cap: 'round' });
+          g.circle(x + Math.cos(ma) * outer, y + Math.sin(ma) * outer, 0.9);
+          g.fill({ color: 0xfff8e1 });
+        }
+        g.circle(x, y, 12.5);
         g.fill({ color: 0xbf360c, alpha: 0.95 });
         g.stroke({ width: 1.5, color: 0xffd54f, alpha: 0.9 });
-
-        // Dense radial microvilli
-        for (let m = 0; m < 12; m++) {
-          const ma = (m / 12) * Math.PI * 2 + this.pulsePhase * 0.4;
-          g.moveTo(x + Math.cos(ma) * 11, y + Math.sin(ma) * 11);
-          g.lineTo(x + Math.cos(ma) * 17, y + Math.sin(ma) * 17);
-          g.stroke({ width: 2.2, color: 0xffd54f, cap: 'round' });
-        }
-
-        // Visible blue cytoplasm interior (reference microscopy)
         g.circle(x, y, 7);
-        g.fill({ color: 0x0288d1, alpha: 0.9 });
-        g.circle(x, y, 3.5);
-        g.fill({ color: 0xffffff });
+        g.fill({ color: 0x0288d1, alpha: 0.85 });
+        const lock = Math.min(1, (tower.beamLockDurationMs || 0) / 3000);
+        g.poly([x, y - 5.5 - lock * 1.5, x + 5, y + 3.5, x - 5, y + 3.5]);
+        g.fill({ color: 0xfff9c4, alpha: 0.95 });
+        g.stroke({ width: 1, color: 0xbf360c });
+        g.circle(x, y + 1, 2 + lock);
+        g.fill({ color: 0x00e5ff });
+      } else if (tower.typeId === 'MACROPHAGE') {
+        // Macrophage Engulfer: violet amoeboid blob with reaching pseudopods and lysosome granules
+        drawPseudopods(g, x, y, 11, 5, 9 + recoil * 2, 0xa78bfa, 0.75, ph, 2.4);
+        drawFibers(g, x, y, 11, 14, 2, 5, 0.6, 0xc4b5fd, 0.45, ph, 0.9);
+        g.poly(blobPoints(x, y, 12.5 + recoil, ph * 0.8, 16, 0.12));
+        g.fill({ color: 0x5b21b6, alpha: 0.95 });
+        g.stroke({ width: 1.4, color: 0xc4b5fd, alpha: 0.9 });
+        for (let i = 0; i < 5; i++) {
+          const a = (i / 5) * Math.PI * 2 + 0.4 + ph * 0.2;
+          const r = 5.5 + Math.sin(i * 2.3) * 1.5;
+          g.circle(x + Math.cos(a) * r, y + Math.sin(a) * r, 1.6 + Math.abs(Math.sin(i * 1.7)) * 0.8);
+          g.fill({ color: 0xede9fe, alpha: 0.9 });
+        }
+        g.circle(x - 1, y + 1, 4);
+        g.fill({ color: 0xa78bfa, alpha: 0.95 });
+        g.circle(x - 2.2, y - 0.2, 1.4);
+        g.fill({ color: 0xffffff, alpha: 0.7 });
       }
 
       // Upgrade tier level pips
@@ -653,76 +825,46 @@ export class GameRenderer {
 
       const x = enemy.position.x;
       const y = enemy.position.y;
-      const colorNum = parseInt(enemy.color.replace('#', '0x'), 16);
       const isSlowed = enemy.statusEffects.some((s) => s.type === 'SLOW');
+      const isBrittle = enemy.statusEffects.some((s) => s.type === 'BRITTLE');
+      const isBurning = enemy.statusEffects.some((s) => s.type === 'DOT');
 
-      // Soft cellular outer membrane
-      const pulse = Math.sin(this.pulsePhase * 4 + enemy.distanceTravelled) * 1.5;
+      const ph = this.pulsePhase + enemy.distanceTravelled * 0.02;
+      const pulse = Math.sin(this.pulsePhase * 4 + enemy.distanceTravelled) * 1.2;
       const radius = enemy.size / 2 + pulse;
 
-      g.circle(x, y, radius);
-      g.fill({ color: colorNum, alpha: 0.88 });
-      g.stroke({
-        width: 1.5,
-        color: isSlowed ? 0x10b981 : 0xffffff,
-        alpha: 0.75,
-      });
+      this.drawEnemyBody(g, enemy, x, y, radius, ph);
 
-      // Spikes and unique realistic morphology per enemy type
-      if (enemy.typeId === 'RHINOVIRUS') {
-        // Acute Pathogen / Rhinovirus: Spiky icosahedral vertices + surface fibrils
-        for (let s = 0; s < 6; s++) {
-          const ang = (s * Math.PI * 2) / 6 + this.pulsePhase * 2;
-          const sx = x + Math.cos(ang) * (radius + 4);
-          const sy = y + Math.sin(ang) * (radius + 4);
-          g.moveTo(x + Math.cos(ang) * (radius - 2), y + Math.sin(ang) * (radius - 2));
-          g.lineTo(sx, sy);
-          g.stroke({ width: 1.5, color: 0xffccbc, alpha: 0.85 });
-          g.circle(sx, sy, 1.2);
-          g.fill({ color: 0xffffff });
+      // Status overlays
+      if (isSlowed) {
+        g.circle(x, y, radius + 3);
+        g.stroke({ width: 1.5, color: 0x67e8f9, alpha: 0.7 });
+        for (let i = 0; i < 4; i++) {
+          const a = (i / 4) * Math.PI * 2 + this.pulsePhase;
+          g.poly([
+            x + Math.cos(a) * (radius + 2), y + Math.sin(a) * (radius + 2),
+            x + Math.cos(a - 0.2) * (radius + 6), y + Math.sin(a - 0.2) * (radius + 6),
+            x + Math.cos(a + 0.2) * (radius + 6), y + Math.sin(a + 0.2) * (radius + 6),
+          ]);
+          g.fill({ color: 0xe0ffff, alpha: 0.8 });
         }
-      } else if (enemy.typeId === 'INFLUENZA') {
-        // Viral Agent / Influenza: Coronavirus-style spike proteins with bulbous tips
-        for (let s = 0; s < 8; s++) {
-          const ang = (s * Math.PI * 2) / 8 + this.pulsePhase;
-          const sx = x + Math.cos(ang) * (radius + 4);
-          const sy = y + Math.sin(ang) * (radius + 4);
-          g.moveTo(x + Math.cos(ang) * radius, y + Math.sin(ang) * radius);
-          g.lineTo(sx, sy);
-          g.stroke({ width: 1.8, color: 0xff5722, cap: 'round' });
-          g.circle(sx, sy, 2.5);
-          g.fill({ color: 0xffab40 });
-        }
-      } else if (enemy.typeId === 'CORONA_TITAN') {
-        // Armored Virus / Corona Titan: Hexagonal armored carapace plates + capsid
-        for (let i = 0; i < 6; i++) {
-          const ang = (i * Math.PI * 2) / 6 + this.pulsePhase * 0.8;
-          g.roundRect(x + Math.cos(ang) * 14 - 3.5, y + Math.sin(ang) * 14 - 3.5, 7, 7, 2);
-          g.fill({ color: 0xf1f5f9, alpha: 0.95 });
-          g.stroke({ width: 1.2, color: 0x990033 });
-        }
-      } else if (enemy.typeId === 'RETRO_MUTANT') {
-        // Cytokine Storm / Retro-Mutant Boss: Massive multi-nucleated envelope with orbiting satellite virions
-        for (let i = 0; i < 8; i++) {
-          const ang = (i * Math.PI * 2) / 8 + this.pulsePhase * 1.5;
-          g.circle(x + Math.cos(ang) * 12, y + Math.sin(ang) * 12, 5);
-          g.fill({ color: 0xff0055, alpha: 0.9 });
-          g.circle(x + Math.cos(ang) * 12, y + Math.sin(ang) * 12, 2);
-          g.fill({ color: 0xffffff });
-        }
-        // Danger bio-aura ring
-        g.circle(x, y, radius + 8);
-        g.stroke({ width: 2, color: 0xff0055, alpha: 0.4 + Math.sin(this.pulsePhase * 3) * 0.3 });
       }
-
-      // Inner dense genetic core
-      g.circle(x, y, radius * 0.45);
-      g.fill({ color: 0xffffff, alpha: 0.75 });
+      if (isBrittle) {
+        g.circle(x, y, radius + 1);
+        g.stroke({ width: 1, color: 0xc4b5fd, alpha: 0.8 });
+      }
+      if (isBurning) {
+        for (let i = 0; i < 3; i++) {
+          const a = this.pulsePhase * 3 + (i / 3) * Math.PI * 2;
+          g.circle(x + Math.cos(a) * radius * 0.8, y + Math.sin(a) * radius * 0.8, 1.8);
+          g.fill({ color: 0xa3e635, alpha: 0.85 });
+        }
+      }
 
       // Health bar above enemy
       const barW = Math.max(22, enemy.size + 6);
       const barH = 3.5;
-      const barY = y - radius - 8;
+      const barY = y - radius - 10;
       const hpRatio = Math.max(0, enemy.hp / enemy.maxHp);
 
       g.rect(x - barW / 2, barY, barW, barH);
@@ -730,6 +872,146 @@ export class GameRenderer {
 
       g.rect(x - barW / 2, barY, barW * hpRatio, barH);
       g.fill({ color: hpRatio > 0.4 ? 0x10b981 : 0xff0055 });
+
+      // Immunity shield pip
+      if (enemy.immunities.length > 0) {
+        g.circle(x + barW / 2 + 4, barY + barH / 2, 2.8);
+        g.fill({ color: 0xeceff1, alpha: 0.95 });
+        g.stroke({ width: 0.8, color: 0xef5350 });
+      }
+    }
+  }
+
+  /** Per-type organic body mirroring the field-manual sprite designs. */
+  private drawEnemyBody(g: Graphics, enemy: EnemyInstance, x: number, y: number, radius: number, ph: number): void {
+    const pal = ENEMY_PALETTES[enemy.typeId] ?? ENEMY_PALETTES.INFLUENZA!;
+    const base = hex(pal.base);
+    const light = hex(pal.light);
+    const dark = hex(pal.dark);
+    const accent = hex(pal.accent);
+
+    if (enemy.typeId === 'RHINOVIRUS') {
+      // Acute Pathogen: pink tangled fibrous amoeba with long trailing pseudopods
+      drawPseudopods(g, x, y, radius, 5, radius * 1.6, light, 0.5, ph, 1);
+      drawFibers(g, x, y, radius - 1, 22, 2, radius * 0.7, 0.68, light, 0.55, ph, 0.9);
+      g.poly(blobPoints(x, y, radius, ph, 14, 0.16));
+      g.fill({ color: base, alpha: 0.95 });
+      g.stroke({ width: 1, color: light, alpha: 0.8 });
+      g.circle(x + 1, y + 1.5, radius * 0.4);
+      g.fill({ color: dark, alpha: 0.8 });
+      g.circle(x, y + 1, radius * 0.22);
+      g.fill({ color: accent, alpha: 0.7 });
+    } else if (enemy.typeId === 'INFLUENZA') {
+      // Viral Agent: orange coronavirus with bulbous spike proteins
+      drawPseudopods(g, x, y, radius, 4, radius * 1.1, accent, 0.45, ph, 1);
+      drawFibers(g, x, y, radius - 1, 14, 1.5, radius * 0.45, 0.5, light, 0.45, ph, 0.8);
+      for (let s = 0; s < 10; s++) {
+        const ang = (s * Math.PI * 2) / 10 + ph * 0.5;
+        const stem = radius + 3.5 + Math.abs(Math.sin(s * 2.3)) * 2;
+        const tx = x + Math.cos(ang) * stem;
+        const ty = y + Math.sin(ang) * stem;
+        g.moveTo(x + Math.cos(ang) * (radius - 1), y + Math.sin(ang) * (radius - 1));
+        g.lineTo(tx, ty);
+        g.stroke({ width: 1.6, color: accent, cap: 'round' });
+        g.circle(tx, ty, 1.8 + Math.abs(Math.sin(s * 3.1)) * 0.8);
+        g.fill({ color: light });
+      }
+      g.poly(blobPoints(x, y, radius, ph, 16, 0.08));
+      g.fill({ color: base, alpha: 0.95 });
+      g.stroke({ width: 1, color: light, alpha: 0.75 });
+      g.circle(x, y + 1, radius * 0.38);
+      g.fill({ color: dark, alpha: 0.75 });
+      g.circle(x - 1, y, radius * 0.16);
+      g.fill({ color: 0xfff3e0, alpha: 0.7 });
+    } else if (enemy.typeId === 'CORONA_TITAN') {
+      // Armored Virus: indigo lumpy capsid with receptor stubs and a red core bleeding through
+      g.poly(blobPoints(x, y, radius, ph * 0.3, 20, 0.05));
+      g.fill({ color: base, alpha: 0.95 });
+      g.stroke({ width: 1.2, color: light, alpha: 0.7 });
+      for (let i = 0; i < 6; i++) {
+        const a = (i / 6) * Math.PI * 2;
+        g.moveTo(x + Math.cos(a) * radius * 0.35, y + Math.sin(a) * radius * 0.35);
+        g.lineTo(x + Math.cos(a) * radius * 0.9, y + Math.sin(a) * radius * 0.9);
+        g.stroke({ width: 0.7, color: light, alpha: 0.35 });
+      }
+      g.circle(x, y, radius * 0.5);
+      g.fill({ color: accent, alpha: 0.55 });
+      g.circle(x, y + 1, radius * 0.28);
+      g.fill({ color: 0xe53935, alpha: 0.95 });
+      g.circle(x - 1.2, y, radius * 0.1);
+      g.fill({ color: 0xffebee, alpha: 0.8 });
+      for (let i = 0; i < 10; i++) {
+        const ang = (i * Math.PI * 2) / 10 + ph * 0.25;
+        const lr = radius * 0.86 + Math.sin(i * 2.1) * 1.2;
+        const lx = x + Math.cos(ang) * lr;
+        const ly = y + Math.sin(ang) * lr;
+        const sz = 3 + Math.abs(Math.sin(i * 3.3)) * 1.6;
+        g.circle(lx, ly, sz);
+        g.fill({ color: 0x3f51b5, alpha: 0.95 });
+        g.stroke({ width: 0.6, color: light, alpha: 0.9 });
+        for (let j = -1; j <= 1; j++) {
+          const sa = ang + j * 0.3;
+          g.moveTo(lx + Math.cos(sa) * sz, ly + Math.sin(sa) * sz);
+          g.lineTo(lx + Math.cos(sa) * (sz + 2.5), ly + Math.sin(sa) * (sz + 2.5));
+          g.stroke({ width: 1, color: light, alpha: 0.8, cap: 'round' });
+        }
+        g.circle(lx - sz * 0.35, ly - sz * 0.35, sz * 0.25);
+        g.fill({ color: 0xffffff, alpha: 0.35 });
+      }
+    } else if (enemy.typeId === 'HEATSHOCK_CARRIER') {
+      // Heat-Shock Carrier: crimson core wrapped in silver heat-shield plates
+      g.circle(x, y, radius + 5);
+      g.stroke({ width: 0.8, color: light, alpha: 0.35 + Math.sin(ph * 3) * 0.15 });
+      drawFibers(g, x, y, radius - 1, 12, 1.5, radius * 0.4, 0.5, light, 0.4, ph, 0.8);
+      g.poly(blobPoints(x, y, radius, ph * 0.5, 16, 0.07));
+      g.fill({ color: base, alpha: 0.95 });
+      g.stroke({ width: 1, color: 0xef9a9a, alpha: 0.7 });
+      for (let i = 0; i < 8; i++) {
+        const a = (i / 8) * Math.PI * 2 + ph * 0.35;
+        const r1 = radius * 0.72;
+        const r2 = radius * 1.18;
+        const hw = 0.26;
+        g.poly([
+          x + Math.cos(a - hw) * r1, y + Math.sin(a - hw) * r1,
+          x + Math.cos(a + hw) * r1, y + Math.sin(a + hw) * r1,
+          x + Math.cos(a + hw * 0.8) * r2, y + Math.sin(a + hw * 0.8) * r2,
+          x + Math.cos(a - hw * 0.8) * r2, y + Math.sin(a - hw * 0.8) * r2,
+        ]);
+        g.fill({ color: accent, alpha: 0.95 });
+        g.stroke({ width: 0.7, color: 0xffffff, alpha: 0.8 });
+      }
+      g.circle(x, y + 0.5, radius * 0.36);
+      g.fill({ color: 0xff5252, alpha: 0.95 });
+      g.circle(x - 1, y - 0.5, radius * 0.14);
+      g.fill({ color: 0xffffff, alpha: 0.85 });
+      // Heat shimmer pulse
+      g.circle(x, y, radius + 2 + Math.sin(ph * 4) * 1.5);
+      g.stroke({ width: 1, color: 0xffffff, alpha: 0.2 });
+    } else if (enemy.typeId === 'RETRO_MUTANT') {
+      // Cytokine Storm: fire-cell with massive filament network and white-hot nucleus
+      g.circle(x, y, radius + 12 + Math.sin(ph * 2) * 2);
+      g.fill({ color: base, alpha: 0.1 });
+      drawPseudopods(g, x, y, radius, 6, radius * 1.5, 0xffea00, 0.5, ph, 1.1);
+      drawFibers(g, x, y, radius - 2, 26, 4, radius * 1.1, 0.72, 0xff6d00, 0.45, ph, 0.8);
+      drawFibers(g, x, y, radius - 2, 18, 2, radius * 0.5, 0.55, 0xffea00, 0.6, ph + 1, 1);
+      g.poly(blobPoints(x, y, radius, ph, 20, 0.12));
+      g.fill({ color: 0xbf360c, alpha: 0.95 });
+      g.stroke({ width: 1.2, color: 0xff9100, alpha: 0.9 });
+      g.circle(x, y, radius * 0.72);
+      g.fill({ color: 0xff9100, alpha: 0.9 });
+      g.circle(x, y, radius * 0.5);
+      g.fill({ color: 0xffea00, alpha: 0.9 });
+      g.circle(x, y, radius * 0.3);
+      g.fill({ color: 0xffff8d, alpha: 0.95 });
+      g.circle(x, y, radius * 0.16 + Math.sin(ph * 5) * 0.6);
+      g.fill({ color: 0xffffff });
+      // Danger bio-aura ring
+      g.circle(x, y, radius + 8);
+      g.stroke({ width: 2, color: 0xff6d00, alpha: 0.4 + Math.sin(this.pulsePhase * 3) * 0.3 });
+    } else {
+      g.circle(x, y, radius);
+      g.fill({ color: base, alpha: 0.9 });
+      g.stroke({ width: 1.5, color: light, alpha: 0.75 });
     }
   }
 
@@ -739,21 +1021,50 @@ export class GameRenderer {
 
     // Render active laser beams from Killer T & IgA tethers
     for (const tower of this.engine.towers.values()) {
+      if (tower.typeId === 'KILLER_T' && tower.beamLocks && tower.beamLocks.length > 1) {
+        for (const lock of tower.beamLocks) {
+          const t = this.engine.enemies.get(lock.targetId);
+          if (!t || t.isDead || t.isLeaked) continue;
+          const lockSec = Math.min(3, lock.lockDurationMs / 1000);
+          g.moveTo(tower.position.x, tower.position.y);
+          g.lineTo(t.position.x, t.position.y);
+          g.stroke({ width: 1.5 + lockSec * 1.2, color: 0xfbbf24, alpha: 0.8 });
+        }
+        continue;
+      }
       if (tower.targetId) {
         const target = this.engine.enemies.get(tower.targetId);
         if (target && !target.isDead && !target.isLeaked) {
           if (tower.typeId === 'KILLER_T') {
-            // Thermal laser beam
+            // Thermal laser beam with a bright core that widens as it ramps
             const lockSec = Math.min(3, (tower.beamLockDurationMs || 0) / 1000);
             const beamWidth = 2 + lockSec * 2;
             g.moveTo(tower.position.x, tower.position.y);
             g.lineTo(target.position.x, target.position.y);
-            g.stroke({ width: beamWidth, color: 0xfbbf24, alpha: 0.85 });
-          } else if (tower.typeId === 'IGA') {
-            // Cryo tether beam
+            g.stroke({ width: beamWidth + 3, color: 0xff6d00, alpha: 0.25 });
             g.moveTo(tower.position.x, tower.position.y);
             g.lineTo(target.position.x, target.position.y);
-            g.stroke({ width: 2.5, color: 0x10b981, alpha: 0.75 });
+            g.stroke({ width: beamWidth, color: 0xfbbf24, alpha: 0.85 });
+            g.moveTo(tower.position.x, tower.position.y);
+            g.lineTo(target.position.x, target.position.y);
+            g.stroke({ width: Math.max(1, beamWidth * 0.35), color: 0xfff9c4, alpha: 0.95 });
+          } else if (tower.typeId === 'IGA') {
+            // Cryo tether: crystalline green beam with drifting ice motes
+            g.moveTo(tower.position.x, tower.position.y);
+            g.lineTo(target.position.x, target.position.y);
+            g.stroke({ width: 4, color: 0x10b981, alpha: 0.3 });
+            g.moveTo(tower.position.x, tower.position.y);
+            g.lineTo(target.position.x, target.position.y);
+            g.stroke({ width: 2, color: 0xb9f6ca, alpha: 0.85 });
+            const dx = target.position.x - tower.position.x;
+            const dy = target.position.y - tower.position.y;
+            for (let i = 0; i < 3; i++) {
+              const t = ((this.pulsePhase * 0.5 + i / 3) % 1);
+              const mx = tower.position.x + dx * t;
+              const my = tower.position.y + dy * t;
+              g.poly([mx, my - 2.5, mx + 2.5, my, mx, my + 2.5, mx - 2.5, my]);
+              g.fill({ color: 0xe8ffe0, alpha: 0.9 });
+            }
           }
         }
       }
@@ -763,19 +1074,55 @@ export class GameRenderer {
     for (const proj of this.engine.projectiles) {
       if (proj.isDead) continue;
       const colorNum = parseInt(proj.color.replace('#', '0x'), 16);
+      const px = proj.currentPosition.x;
+      const py = proj.currentPosition.y;
+      const heading = Math.atan2(proj.targetPosition.y - py, proj.targetPosition.x - px);
 
       if (proj.specialType === 'CLUSTER') {
-        // IgM plasma cluster bomb
-        g.circle(proj.currentPosition.x, proj.currentPosition.y, 5);
-        g.fill({ color: colorNum });
-        g.circle(proj.currentPosition.x, proj.currentPosition.y, 8);
-        g.fill({ color: colorNum, alpha: 0.3 });
+        // IgM plasma cluster shell: mini pentamer of lobes spinning in flight
+        g.circle(px, py, 8);
+        g.fill({ color: colorNum, alpha: 0.25 });
+        for (let i = 0; i < 5; i++) {
+          const a = (i / 5) * Math.PI * 2 + this.pulsePhase * 4;
+          g.circle(px + Math.cos(a) * 3.2, py + Math.sin(a) * 3.2, 2);
+          g.fill({ color: 0xad1457 });
+          g.stroke({ width: 0.6, color: 0xf48fb1 });
+        }
+        g.circle(px, py, 1.6);
+        g.fill({ color: 0xfce4ec });
+      } else if (proj.specialType === 'ENGULF') {
+        // Macrophage engulfing glob: wobbling violet blob trailing pseudopods
+        g.poly(blobPoints(px, py, 6, this.pulsePhase * 3, 12, 0.18));
+        g.fill({ color: 0x5b21b6, alpha: 0.9 });
+        g.stroke({ width: 1, color: 0xc4b5fd, alpha: 0.9 });
+        for (let i = 0; i < 3; i++) {
+          const a = heading + Math.PI + (i - 1) * 0.5;
+          g.moveTo(px + Math.cos(a) * 4, py + Math.sin(a) * 4);
+          g.quadraticCurveTo(
+            px + Math.cos(a + 0.3) * 9,
+            py + Math.sin(a + 0.3) * 9,
+            px + Math.cos(a) * 13,
+            py + Math.sin(a) * 13
+          );
+          g.stroke({ width: 1.6, color: 0xa78bfa, alpha: 0.7, cap: 'round' });
+        }
+        g.circle(px - 1, py - 1, 1.8);
+        g.fill({ color: 0xede9fe, alpha: 0.9 });
       } else {
-        // IgG photon pulse
-        g.circle(proj.currentPosition.x, proj.currentPosition.y, 3.5);
+        // IgG photon bolt: tiny Y-antibody with a speed trail
+        g.moveTo(px - Math.cos(heading) * 10, py - Math.sin(heading) * 10);
+        g.lineTo(px, py);
+        g.stroke({ width: 2.5, color: colorNum, alpha: 0.35, cap: 'round' });
+        g.moveTo(px - Math.cos(heading) * 3.5, py - Math.sin(heading) * 3.5);
+        g.lineTo(px, py);
+        g.stroke({ width: 2, color: 0xb2ebf2, cap: 'round' });
+        for (const side of [-0.7, 0.7]) {
+          g.moveTo(px, py);
+          g.lineTo(px + Math.cos(heading + side) * 3.5, py + Math.sin(heading + side) * 3.5);
+          g.stroke({ width: 1.6, color: proj.isCrit ? 0xffffff : 0x00e5ff, cap: 'round' });
+        }
+        g.circle(px, py, proj.isCrit ? 2.6 : 1.8);
         g.fill({ color: 0xffffff });
-        g.circle(proj.currentPosition.x, proj.currentPosition.y, 6);
-        g.fill({ color: colorNum, alpha: 0.5 });
       }
     }
   }
@@ -797,10 +1144,17 @@ export class GameRenderer {
     const world = this.engine.mapGrid.cellToWorld(this.hoveredCell.col, this.hoveredCell.row);
     const color = check.valid ? 0x00f5ff : 0xff0055;
 
-    // Range preview circle
+    // Organic circular membrane placement rings and glow aura.
     g.circle(world.x, world.y, def.range);
     g.fill({ color, alpha: 0.08 });
     g.stroke({ width: 1.5, color, alpha: 0.5 });
+    for (let ring = 0; ring < 3; ring++) {
+      const radius = 15 + ring * 6 + Math.sin(this.pulsePhase * 2 + ring) * 1.5;
+      g.circle(world.x, world.y, radius);
+      g.stroke({ width: 1.5, color, alpha: 0.45 - ring * 0.1 });
+    }
+    g.circle(world.x, world.y, 10 + Math.sin(this.pulsePhase * 3) * 2);
+    g.fill({ color, alpha: check.valid ? 0.16 : 0.1 });
 
     // Cell highlight box
     const cs = this.engine.mapGrid.data.cellSize;

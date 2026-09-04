@@ -41,7 +41,7 @@ describe('Tower branch specials', () => {
 
   it('CRIT_CHANCE_25: IgG branch A deterministically deals occasional double-damage crits', () => {
     const { engine, tower } = setupBranchTower('IGG', 'A', 1234);
-    spawnAnchoredEnemy(engine, 0);
+    const victim = spawnAnchoredEnemy(engine, 0);
 
     const damageEvents: { amount: number; isCrit?: boolean }[] = [];
     engine.events.subscribe((e: DomainEvent) => {
@@ -59,9 +59,9 @@ describe('Tower branch specials', () => {
     const normals = damageEvents.filter((e) => !e.isCrit);
     expect(crits.length).toBeGreaterThan(0);
     expect(normals.length).toBeGreaterThan(0);
-    // Crit deals exactly double raw damage (armor 0 on INFLUENZA)
-    expect(crits[0]!.amount).toBe(tower.damage * 2);
-    expect(normals[0]!.amount).toBe(tower.damage);
+    // Crit deals exactly double raw damage (minus the victim's flat armor)
+    expect(crits[0]!.amount).toBe(tower.damage * 2 - victim.armor);
+    expect(normals[0]!.amount).toBe(tower.damage - victim.armor);
 
     // Deterministic per seed: same seed reproduces exact crit count
     const rerun = setupBranchTower('IGG', 'A', 1234);
@@ -156,10 +156,10 @@ describe('Tower branch specials', () => {
     expect(brittle).toBeDefined();
     expect(brittle!.magnitude).toBe(0.25);
 
-    // Brittle amplifies damage from ANY source by 25% (armor 0 on INFLUENZA)
+    // Brittle amplifies damage from ANY source by 25% before flat armor is subtracted
     const hpBefore = enemy.hp;
     engine.applyDamageToEnemy(enemy, 100);
-    expect(hpBefore - enemy.hp).toBeCloseTo(125, 5);
+    expect(hpBefore - enemy.hp).toBeCloseTo(125 - enemy.armor, 5);
   });
 
   it('OMNI_AURA_SLOW: IgA branch B slows all enemies in range each pulse', () => {

@@ -1,11 +1,11 @@
 import { test, expect } from '@playwright/test';
 
-test.describe('Cyber-Immunology TD Game Journey', () => {
+test.describe('Microcosm TD Game Journey', () => {
   test('Complete Primary User Journey', async ({ page }) => {
     // 1. Boot and Main Menu
     await page.goto('/');
     const title = page.locator('h1');
-    await expect(title).toContainText('CYBER-IMMUNOLOGY');
+    await expect(title).toContainText('MICROCOSM');
 
     const startBtn = page.locator('[data-testid="btn-menu-start"]');
     await expect(startBtn).toBeVisible();
@@ -49,9 +49,11 @@ test.describe('Cyber-Immunology TD Game Journey', () => {
     await upgradeT1.click();
     await expect(hudAtp).toHaveText('186');
 
-    // Select Branch A (Cost 150 discounted to 128 -> ATP goes to 58)
+    // Five specialization branches are offered at Tier 3; select Branch A (Cost 150 discounted to 128 -> ATP goes to 58)
+    for (const id of ['a', 'b', 'c', 'd', 'e']) {
+      await expect(page.locator(`[data-testid="btn-branch-${id}"]`)).toBeVisible();
+    }
     const branchA = page.locator('[data-testid="btn-branch-a"]');
-    await expect(branchA).toBeVisible();
     await branchA.click();
     await expect(hudAtp).toHaveText('58');
 

@@ -1,8 +1,54 @@
 # Changelog
 
-All notable changes to **Cyber-Immunology: Neon Microcosm** are documented in this file.
+All notable changes to **Microcosm** are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
+
+## [0.3.0] — 2026-09-04 — third_implementation
+
+Major Microcosm overhaul introducing biological SVG sprites, 5-branch upgrade matrix, specialized tower combat ammunition, synthesized ATP audio feedback, rebalanced difficulty/enemies, and tactical recycling mechanics.
+
+### Added
+- **Microcosm Branding & Polished Landing View**:
+  - Rebranded the game to **Microcosm** across `index.html`, `src/main.ts`, `src/ui/hud.ts`, docs, and test suites.
+  - Landing screen styled with glowing neon cyan title (`text-[#00f5ff] neon-glow-cyan font-title font-extrabold text-5xl tracking-widest`) and subtitle `"a tower defense game."` (`font-body text-sm text-cyan-300 tracking-wider`).
+  - Removed outdated version tags, "Cellular Defense Simulator", and technical footer details from the drop-in view.
+- **Biological SVG Sprites & Fiber Algorithms**:
+  - Ported procedural cell math (`makeFibers`, `smoothBlob`, `pseudopod`, cytoplasmic granule generation) into `src/ui/towerSprites.ts` and `src/render/gameRenderer.ts`.
+  - Added high-detail biological SVG sprites for all enemies (`AcutePathogen`, `ArmoredVirus`, `CytokineStorm`, `ViralAgent`, etc.), towers (`IgGPulse`, `IgMCluster`, `IgACryoTether`, `KillerTCell`), and upgrade branches.
+  - Created bespoke HUD SVG icons: `ATPIcon` (adenine ring + triphosphate chain), `HealthBar` (organic vessel outline with heartbeat/EKG rhythm), and `ScoreIcon`.
+  - Integrated biological enemy silhouettes and stats into the Field Manual / Enemy Intel Legend and Tower Info Preview Chart.
+- **Tower Ammunition & 5-Branch Upgrade Matrix**:
+  - Implemented 5 strategic branching paths per tower:
+    - Branch A: **Kinetic Swarm** (rapid kinetic acceleration, critical chance, hyper-frequency)
+    - Branch B: **Cryo-Control** (deep freeze, brittle status amplification, glacial aura)
+    - Branch C: **Corrosive Acid** (toxic bio-plasma, armor stripping, damage-over-time)
+    - Branch D: **Thermal Piercing** (focused perforin thermal lance, armor melt, beam ramp)
+    - Branch E: **Phagocytic Engulfment** (cellular digestion, ATP extraction bonuses, tethering)
+  - Added Apex Tier 4 upgrades with unique damage multipliers and combat specializations.
+  - Implemented distinct ammunition and projectile behaviors:
+    - IgG Pulse: high-velocity bio-photon spikes with ionization trails.
+    - IgA Cryo-Tether: sub-zero freezing goo globs, crystalline ice spikes, rooting/slow effects, and icy ground hazards.
+    - IgM Cluster: toxic bio-plasma clouds and secondary corrosive fragments.
+    - Killer T-Cell: continuous high-energy perforin thermal lance.
+- **Synthesized Web Audio ATP Feedback**:
+  - Added `playAtpGain()` (melodic dual-oscillator chime) and `playAtpSpend()` (resonant filtered low-pass synth thud) in `src/audio/synth.ts`.
+  - Wired sound synthesis into all engine ATP transactions (tower purchase, upgrades, kills, wave rewards, and recycling).
+- **Extreme Mode & Tactical Tower Recycling**:
+  - Overhauled Extreme mode to prevent instant resource starvation: starting 220 ATP, 0.65x ATP rewards, 1.75x enemy HP, 1.3x speed.
+  - Replaced rigid grid squares with organic circular bio-membrane placement rings and animated glow auras.
+  - Added tactical tower recycling and lifespan mechanics (`RECYCLE_TOWER` command) with dynamic depreciation and UI telemetry.
+- **Automated Test Coverage**:
+  - Added `tests/unit/core/engine_branches_immunity.test.ts` covering 5-branch upgrade trees, apex tiers, and branch mechanics. Total unit test suite expanded to 98 passing tests.
+
+### Changed
+- Rebalanced enemy durability and membrane HP (+30% to +50% on Easy and Medium maps) to require coordinated defensive choke points.
+- Tuned dynamic ATP bounties across wave progression and difficulty curves.
+- Cleaned up difficulty definitions to strictly use canonical identifiers (`RESIDENT`, `ACUTE`, `CRITICAL`, `EXTREME`).
+
+### Fixed
+- Fixed unprompted audio autoplay restrictions by initiating playback on boot with fallback event listeners on first user gesture.
+- Removed legacy duplicate difficulty constants from types and data schemas.
 
 ## [0.2.0] — 2026-09-03 — second_implementation
 

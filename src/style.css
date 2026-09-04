@@ -176,8 +176,7 @@
   box-shadow: 0 0 10px rgba(217, 70, 239, 0.8);
 }
 
+
 .bio-slider-music::-moz-range-thumb:hover {
   box-shadow: 0 0 15px rgba(217, 70, 239, 1);
 }
-
-

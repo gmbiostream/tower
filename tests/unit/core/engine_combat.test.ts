@@ -66,24 +66,26 @@ describe('GameEngine Combat Mechanics', () => {
     expect(enemy.effectiveSpeed).toBeLessThan(enemy.baseSpeed);
   });
 
-  it('Corona Titan armor should flat-reduce damage (with min 1)', () => {
+  it('Armored Virus armor should flat-reduce damage (with min 1)', () => {
     const engine = new GameEngine();
     engine.dispatch({ type: 'START_GAME', mapId: 'VASCULAR_RUN', difficultyId: 'ACUTE' });
 
     const titan = engine.spawnEnemy('CORONA_TITAN', 0);
     const initialHp = titan.hp;
+    const armor = titan.armor;
+    expect(armor).toBeGreaterThan(0);
 
-    // Apply 10 raw damage to Titan with 6 armor -> should take 4 dmg
-    engine.applyDamageToEnemy(titan, 10);
+    // Raw damage above the armor value is reduced by exactly the armor
+    engine.applyDamageToEnemy(titan, armor + 4);
     expect(titan.hp).toBe(initialHp - 4);
 
-    // Apply 3 raw damage -> armor reduces to min 1 dmg
+    // Raw damage below the armor value still deals the 1 damage floor
     const curHp = titan.hp;
     engine.applyDamageToEnemy(titan, 3);
     expect(titan.hp).toBe(curHp - 1);
   });
 
-  it('Retro-Mutant boss should split into 4 Rhinoviruses upon defeat', () => {
+  it('Cytokine Storm boss should split into 4 Acute Pathogens upon defeat', () => {
     const engine = new GameEngine();
     engine.dispatch({ type: 'START_GAME', mapId: 'VASCULAR_RUN', difficultyId: 'ACUTE' });
 

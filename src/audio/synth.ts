@@ -512,6 +512,30 @@ export class SoundSynth {
    * Starts the looping soundtrack. Defaults to the game soundtrack MP3 (/audio/soundtrack.mp3),
    * with seamless fallback to procedural orchestral synthesis if audio files are unavailable.
    */
+  public async unlockAudio(): Promise<void> {
+    this.initContext();
+    if (this.ctx && this.ctx.state === 'suspended') {
+      try {
+        await this.ctx.resume();
+      } catch {
+        // ignore
+      }
+    }
+    if (this.bgmAudio && this.bgmAudio.paused) {
+      this.bgmAudio.play().then(() => {
+        this.isBgmPlaying = true;
+      }).catch(() => {
+        if (!this.isBgmPlaying) this.startProceduralBgm();
+      });
+    } else if (!this.isBgmPlaying) {
+      this.startAmbientBgm();
+    }
+  }
+
+  public getContext(): AudioContext | null {
+    return this.ctx;
+  }
+
   public startAmbientBgm(trackSrc: string = '/audio/soundtrack.mp3'): void {
     if (this.isBgmPlaying) return;
     this.initContext();
@@ -689,13 +713,17 @@ export class SoundSynth {
     if (this.bgmGain && this.ctx) {
       this.bgmGain.gain.setValueAtTime(this.isMuted ? 0 : this.musicVolume * 0.5, this.ctx.currentTime);
     }
-    if (!this.bgmSourceNode) {
-      this.bgmAudio.volume = this.isMuted ? 0 : this.masterVolume * this.musicVolume;
-    }
+    this.bgmAudio.volume = this.isMuted ? 0 : Math.max(0, Math.min(1, this.masterVolume * this.musicVolume));
 
-    this.bgmAudio.play().catch(() => {
-      // Handled gracefully if browser blocks unprompted autoplay
-    });
+    const playPromise = this.bgmAudio.play();
+    if (playPromise !== undefined) {
+      playPromise.catch(() => {
+        // Autoplay blocked by browser; reset flag so next gesture can start it
+        this.isBgmPlaying = false;
+        // Fall back to procedural BGM if external track cannot play
+        this.startProceduralBgm();
+      });
+    }
 
     return this.bgmAudio;
   }

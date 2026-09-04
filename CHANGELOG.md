@@ -4,6 +4,25 @@ All notable changes to **Microcosm** are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.4.0] — 2026-09-04 — fifth_implementation
+
+Enhancements to biological tower sprite transitions, audio synthesis unlock coordination, and test suites.
+
+### Added
+- **Tower Upgrade Branch Sprite Transitions**:
+  - Implemented dynamic texture key resolution (`getTowerTextureKey`) ensuring every tower smoothly transitions from base bio-sprites to unique specialization branch sprites upon Tier 3 and Tier 4 evolution.
+  - Added vector SVG texture generation (`loadSvgTexture`) supporting all 25 specialization branches across kinetic, cryo, acid, thermal, and phagocytic trees.
+  - Added colored bio-membrane socket glow rings around towers reflecting chosen specialization branch hues.
+  - Updated Tower Inspector header to display active branch icons and specialization names upon selection.
+- **Audio Autoplay & Unlock Coordination**:
+  - Added `unlockAudio()` in `SoundSynth` to resume suspended Web Audio contexts and retry BGM playback on initial user gestures.
+  - Wired audio unlocking into start, preview, and deploy buttons.
+- **Automated Tests**:
+  - Added unit test suite `tests/unit/render/tower_branch_sprites.test.ts` verifying texture transitions across all tower types and 25 specialization branches. Total unit test suite expanded to 103 tests.
+
+### Known Limitations
+- **In 5th implementation**: A feature where you could play as the enemy is currently not implemented; gameplay is dedicated to cellular antibody tower defense.
+
 ## [0.3.0] — 2026-09-04 — third_implementation
 
 Major Microcosm overhaul introducing biological SVG sprites, 5-branch upgrade matrix, specialized tower combat ammunition, synthesized ATP audio feedback, rebalanced difficulty/enemies, and tactical recycling mechanics.

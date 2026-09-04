@@ -29,20 +29,14 @@ async function bootstrap() {
     ui,
   };
 
-  // Start immediately where autoplay is allowed, then retry the audio element after
-  // the first user gesture in browsers that block unprompted playback.
+  // Resume and start audio on first user gesture to comply with browser autoplay policies
   const unlockAudio = () => {
-    synth.initContext();
-    synth.startAmbientBgm();
-    synth.resumeMusicTrack();
-    document.removeEventListener('click', unlockAudio);
-    document.removeEventListener('keydown', unlockAudio);
-    document.removeEventListener('touchstart', unlockAudio);
+    synth.unlockAudio();
   };
   synth.startAmbientBgm();
-  document.addEventListener('click', unlockAudio, { once: true });
-  document.addEventListener('keydown', unlockAudio, { once: true });
-  document.addEventListener('touchstart', unlockAudio, { once: true });
+  window.addEventListener('click', unlockAudio);
+  window.addEventListener('keydown', unlockAudio);
+  window.addEventListener('touchstart', unlockAudio);
 
   // Main game loop (RAF + fixed-timestep simulation accumulator)
   let lastTime = performance.now();

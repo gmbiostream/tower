@@ -492,12 +492,12 @@ export class GameUI {
     inspector.innerHTML = `
       <div class="flex items-center justify-between pb-3 border-b border-bio-border">
         <div class="flex items-center gap-2.5">
-          <div class="w-8 h-8 rounded-lg overflow-hidden bg-slate-950 flex items-center justify-center border" style="border-color: ${tower.color}66;">
-            ${getTowerSvg(tower.typeId, 32)}
+          <div id="inspector-tower-sprite" data-testid="inspector-tower-sprite" class="w-8 h-8 rounded-lg overflow-hidden bg-slate-950 flex items-center justify-center border" style="border-color: ${tower.color}66;">
+            ${selectedBranchDef ? getBranchUpgradeSvg(selectedBranchDef.special || selectedBranchDef.name, 32) : getTowerSvg(tower.typeId, 32)}
           </div>
           <div>
-            <div class="font-title text-sm font-bold text-bio-text">${tower.name}</div>
-            <div class="text-[10px] font-mono text-bio-muted">${def.role}</div>
+            <div class="font-title text-sm font-bold text-bio-text">${selectedBranchDef ? `${tower.name} (${selectedBranchDef.name})` : tower.name}</div>
+            <div class="text-[10px] font-mono text-bio-muted">${selectedBranchDef ? `${selectedBranchDef.id}: ${selectedBranchDef.name} · ${DAMAGE_TYPE_LABEL[tower.damageType] ?? tower.damageType}` : def.role}</div>
           </div>
         </div>
         <button id="btn-close-inspector" class="text-bio-muted hover:text-bio-text text-sm">✕</button>
@@ -608,7 +608,7 @@ export class GameUI {
     `;
 
     document.getElementById('btn-menu-start')?.addEventListener('click', () => {
-      this.synth.startAmbientBgm();
+      this.synth.unlockAudio();
       this.engine.dispatch({
         type: 'START_GAME',
         mapId: this.selectedMapId,
@@ -619,12 +619,12 @@ export class GameUI {
     });
 
     document.getElementById('btn-menu-tower-preview')?.addEventListener('click', () => {
-      this.synth.startAmbientBgm();
+      this.synth.unlockAudio();
       this.renderTowerPreviewModal();
     });
 
     document.getElementById('btn-menu-level-select')?.addEventListener('click', () => {
-      this.synth.startAmbientBgm();
+      this.synth.unlockAudio();
       this.renderLevelSelectModal();
     });
 
@@ -931,7 +931,7 @@ export class GameUI {
     document.getElementById('btn-level-towers')?.addEventListener('click', () => this.renderTowerPreviewModal());
 
     document.getElementById('btn-level-launch')?.addEventListener('click', () => {
-      this.synth.startAmbientBgm();
+      this.synth.unlockAudio();
       this.engine.dispatch({
         type: 'START_GAME',
         mapId: this.selectedMapId,

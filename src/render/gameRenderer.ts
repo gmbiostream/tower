@@ -265,36 +265,37 @@ export class GameRenderer {
   }
 
   private async loadSpriteTextures(): Promise<void> {
+    const base = (import.meta.env.BASE_URL || './').replace(/\/+$/, '') + '/';
     const assetsToLoad: Record<string, string> = {
       // Enemies
-      'enemy_RHINOVIRUS': '/sprites/acute_pathogen.png',
-      'enemy_INFLUENZA': '/sprites/viral_agent.png',
-      'enemy_CORONA_TITAN': '/sprites/armored_virus.png',
-      'enemy_RETRO_MUTANT': '/sprites/cytokine_storm.png',
-      'enemy_HEATSHOCK_CARRIER': '/sprites/armored_virus.png',
+      'enemy_RHINOVIRUS': `${base}sprites/acute_pathogen.png`,
+      'enemy_INFLUENZA': `${base}sprites/viral_agent.png`,
+      'enemy_CORONA_TITAN': `${base}sprites/armored_virus.png`,
+      'enemy_RETRO_MUTANT': `${base}sprites/cytokine_storm.png`,
+      'enemy_HEATSHOCK_CARRIER': `${base}sprites/armored_virus.png`,
 
       // Towers Base
-      'tower_IGG': '/sprites/igg_pulse.png',
-      'tower_IGA': '/sprites/iga_cryo-tether.png',
-      'tower_IGM': '/sprites/igm_cluster.png',
-      'tower_KILLER_T': '/sprites/killer_t-cell.png',
-      'tower_MACROPHAGE': '/sprites/macrophage.png',
+      'tower_IGG': `${base}sprites/igg_pulse.png`,
+      'tower_IGA': `${base}sprites/iga_cryo-tether.png`,
+      'tower_IGM': `${base}sprites/igm_cluster.png`,
+      'tower_KILLER_T': `${base}sprites/killer_t-cell.png`,
+      'tower_MACROPHAGE': `${base}sprites/macrophage.png`,
 
       // Tower Upgrades / Branches with pre-rendered raster sprites
-      'upgrade_HYPERPULSE_BARRAGE': '/sprites/hyperpulse_barrage.png',
-      'upgrade_IGG_A': '/sprites/hyperpulse_barrage.png',
-      'upgrade_ANTIBODY_STORM': '/sprites/antibody_storm.png',
-      'upgrade_IGG_B': '/sprites/antibody_storm.png',
-      'upgrade_DEEP_FREEZE': '/sprites/deep_freeze.png',
-      'upgrade_IGA_A': '/sprites/deep_freeze.png',
-      'upgrade_GLACIAL_AURA': '/sprites/glacial_aura.png',
-      'upgrade_IGA_B': '/sprites/glacial_aura.png',
-      'upgrade_TOXIN_NEBULA': '/sprites/toxin_nebula.png',
-      'upgrade_IGM_A': '/sprites/toxin_nebula.png',
-      'upgrade_CHAIN_REACTION': '/sprites/chain_reaction.png',
-      'upgrade_IGM_B': '/sprites/chain_reaction.png',
-      'upgrade_CYTOTOXIC_NOVA': '/sprites/cytotoxic_nova.png',
-      'upgrade_KILLER_T_B': '/sprites/cytotoxic_nova.png',
+      'upgrade_HYPERPULSE_BARRAGE': `${base}sprites/hyperpulse_barrage.png`,
+      'upgrade_IGG_A': `${base}sprites/hyperpulse_barrage.png`,
+      'upgrade_ANTIBODY_STORM': `${base}sprites/antibody_storm.png`,
+      'upgrade_IGG_B': `${base}sprites/antibody_storm.png`,
+      'upgrade_DEEP_FREEZE': `${base}sprites/deep_freeze.png`,
+      'upgrade_IGA_A': `${base}sprites/deep_freeze.png`,
+      'upgrade_GLACIAL_AURA': `${base}sprites/glacial_aura.png`,
+      'upgrade_IGA_B': `${base}sprites/glacial_aura.png`,
+      'upgrade_TOXIN_NEBULA': `${base}sprites/toxin_nebula.png`,
+      'upgrade_IGM_A': `${base}sprites/toxin_nebula.png`,
+      'upgrade_CHAIN_REACTION': `${base}sprites/chain_reaction.png`,
+      'upgrade_IGM_B': `${base}sprites/chain_reaction.png`,
+      'upgrade_CYTOTOXIC_NOVA': `${base}sprites/cytotoxic_nova.png`,
+      'upgrade_KILLER_T_B': `${base}sprites/cytotoxic_nova.png`,
     };
 
     for (const [key, path] of Object.entries(assetsToLoad)) {

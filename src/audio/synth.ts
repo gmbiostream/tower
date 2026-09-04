@@ -536,13 +536,16 @@ export class SoundSynth {
     return this.ctx;
   }
 
-  public startAmbientBgm(trackSrc: string = '/audio/soundtrack.mp3'): void {
+  public startAmbientBgm(trackSrc?: string): void {
     if (this.isBgmPlaying) return;
     this.initContext();
 
+    const base = (typeof import.meta !== 'undefined' && import.meta.env?.BASE_URL ? import.meta.env.BASE_URL : './').replace(/\/+$/, '') + '/';
+    const targetSrc = trackSrc || `${base}audio/soundtrack.mp3`;
+
     if (typeof Audio !== 'undefined') {
       try {
-        const audio = this.playMusicTrack(trackSrc, true);
+        const audio = this.playMusicTrack(targetSrc, true);
         if (audio) {
           this.isBgmPlaying = true;
           return;
